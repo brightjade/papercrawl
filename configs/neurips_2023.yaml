@@ -1,0 +1,13 @@
+conference:
+  name: NeurIPS
+  year: 2023
+  type: [oral, spotlight, poster]
+
+type_page:
+  oral: 6
+  spotlight: 13
+  poster: 13
+
+save_info:
+  save_dir: /Users/yujinbaek/Dropbox/001_gsai_kaist/03_codeground/openreview-crawler/outputs
+  save_filename: papers.tsv

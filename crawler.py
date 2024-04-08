@@ -2,7 +2,6 @@
 import argparse
 import os
 import time
-from tqdm import tqdm
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -11,7 +10,12 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
 
-from utils import read_yaml
+import yaml
+
+
+def read_yaml(fname):
+    with open(fname, "r") as f:
+        return yaml.full_load(f)
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -36,7 +40,7 @@ if __name__ == "__main__":
 
     conference_name = config["conference"]["name"]
     conference_year = config["conference"]["year"]
-    conference_type = config["conference"]["type"][0]
+    conference_type = config["conference"]["type"][2]
 
     type_page = config["type_page"][conference_type]
 
