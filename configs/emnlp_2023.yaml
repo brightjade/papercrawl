@@ -1,15 +1,14 @@
 conference:
-  name: "ICLR"
-  year: 2024
-  selections: ["oral", "spotlight", "poster"]
+  name: "EMNLP"
+  year: 2023
+  selections: ["main", "findings"]
 
 page_indicators:
-  oral: 7
-  spotlight: 13
-  poster: 13
+  main: 13
+  findings: 13
 
 navigation_paths:
-  base_url: "https://openreview.net/group?id={name}.cc/{year}/Conference#tab-accept-{selection}"
+  base_url: "https://openreview.net/group?id={name}/{year}/Conference#tab-accept-{selection}"
   next_page: "//*[@id='accept-{selection}']/div/div/nav/ul/li[{page_indicator}]/a"
   papers: "//*[@id='accept-{selection}']/div/div/ul/li"
 

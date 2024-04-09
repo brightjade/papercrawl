@@ -1,13 +1,18 @@
 conference:
-  name: NeurIPS
+  name: "NeurIPS"
   year: 2023
-  type: [oral, spotlight, poster]
+  selections: ["oral", "spotlight", "poster"]
 
-type_page:
+page_indicators:
   oral: 6
   spotlight: 13
   poster: 13
 
+navigation_paths:
+  base_url: "https://openreview.net/group?id={name}.cc/{year}/Conference#tab-accept-{selection}"
+  next_page: "//*[@id='accept-{selection}']/div/div/nav/ul/li[{page_indicator}]/a"
+  papers: "//*[@id='accept-{selection}']/div/div/ul/li"
+
 save_info:
-  save_dir: /Users/yujinbaek/Dropbox/001_gsai_kaist/03_codeground/openreview-crawler/outputs
-  save_filename: papers.tsv
+  save_dir: "outputs/{name}-{year}"
+  save_filename: "{selection}_paper.json"
