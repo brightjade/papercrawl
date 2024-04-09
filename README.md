@@ -21,7 +21,7 @@ webdriver-manager >= 4.0.1
 
 - Configuration files for **EMNLP-2023**, **NeurIPS-2024**, and **ICLR-2024** are already prepared. Please refer to the `configs/{emnlp_2023|neurips_2023|iclr_2024}.yaml` files.
 - For conferences other than these, you will need to gather some information to complete the fields in the configuration file.
-    - `selections`: It depends on which conference you choose. The type of presentation (e.g., `oral`) be inferred from URLs like **https://openreview.net/group?id=ICLR.cc/2024/Conference#accept-oral**
+    - `selections`: It depends on which conference you choose. The type of presentation (e.g., `oral`) can be inferred from URLs like **https://openreview.net/group?id=ICLR.cc/2024/Conference#accept-oral**
 
     - `page_indicators`: It is important to specify this information. 💫 
 
@@ -43,7 +43,7 @@ python main.py --headless --config_filepath ./configs/{neurips_2023|iclr_2024}.y
 
 - **EMNLP 2023** 
 ```
-# select between `main` or `findings`
+# select between `main`, or `findings`
 python main.py --headless --config_filepath ./configs/{emnlp_2023}.yaml --selection {main|findings}
 
 # select all
