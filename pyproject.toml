@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "openreview-crawler"
+version = "0.1.0"
+description = ""
+authors = ["hey-yujin <yujinbaek@kaist.ac.kr>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pyyaml = "^6.0.1"
+selenium = "4.2.0"
+webdriver-manager = "4.0.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
