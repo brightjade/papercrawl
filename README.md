@@ -34,7 +34,7 @@ poetry install
 # select among `oral`, `spotlight`, or `poster`
 python main.py --headless --config_filepath ./configs/{neurips_2023|iclr_2024}.yaml --selection {oral|spotlight|poster}
 
-# select all
+# select all (currently not working..)
 python main.py --headless --config_filepath ./configs/{neurips_2023|iclr_2024}.yaml --all
 ```
 
@@ -44,7 +44,7 @@ python main.py --headless --config_filepath ./configs/{neurips_2023|iclr_2024}.y
 # select between `main`, or `findings`
 python main.py --headless --config_filepath ./configs/{emnlp_2023}.yaml --selection {main|findings}
 
-# select all
+# select all (currently not working..)
 python main.py --headless --config_filepath ./configs/{emnlp_2023}.yaml --all
 ```
 
