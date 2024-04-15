@@ -1,6 +1,5 @@
 # Many lines are adapted from https://github.com/fedebotu/ICLR2022-OpenReviewData
 from collections import defaultdict
-from dataclasses import dataclass
 from tqdm import tqdm
 from typing import Any, Dict
 import json
@@ -26,11 +25,11 @@ def get_keywords(web_element: WebElement) -> str:
     return " "
 
 
-@dataclass
 class OpenreviewCrawler:
-    config: Dict[str, Any]
-    web_driver: WebDriver
-    max_wait: int
+    def __init__(self, config: Dict[str, Any], web_driver: WebDriver, max_wait: int):
+        self.config = config
+        self.web_driver = web_driver
+        self.max_wait = max_wait
 
     def get_paper_details(self, web_element: WebElement, index: int) -> Dict[str, Any]:
         data = defaultdict()
