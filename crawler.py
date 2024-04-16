@@ -14,11 +14,11 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
 
 
-def get_keywords(web_element: WebElement) -> str:
-    sections = web_element.find_elements(By.XPATH, ".//div/div/strong")
+def get_keywords(paper: WebElement) -> str:
+    sections = paper.find_elements(By.XPATH, ".//div/div/strong")
     for idx, section in enumerate(sections, start=1):
         if section.text.strip() == "Keywords:":
-            keywords = web_element.find_element(
+            keywords = paper.find_element(
                 By.XPATH, f".//div/div[{idx}]/span"
             ).text.strip()
             return keywords
@@ -31,22 +31,20 @@ class OpenreviewCrawler:
         self.web_driver = web_driver
         self.max_wait = max_wait
 
-    def get_paper_details(self, web_element: WebElement, index: int) -> Dict[str, Any]:
+    def get_paper_details(self, paper: WebElement, index: int) -> Dict[str, Any]:
         data = defaultdict()
 
-        paper_base_info = web_element.find_element(By.TAG_NAME, "a")
+        paper_base_info = paper.find_element(By.TAG_NAME, "a")
         data["title"] = paper_base_info.text.strip()
         data["link"] = (
             paper_base_info.get_attribute("href").strip().replace("forum", "pdf")
         )
 
         # Get authors info
-        data["authors"] = web_element.find_element(
-            By.CLASS_NAME, "note-authors"
-        ).text.strip()
+        data["authors"] = paper.find_element(By.CLASS_NAME, "note-authors").text.strip()
 
         # Open up the details to get keywords (> Show details)
-        paper_detailed_info = web_element.find_element(By.CLASS_NAME, "collapse-widget")
+        paper_detailed_info = paper.find_element(By.CLASS_NAME, "collapse-widget")
         if index == 0:  # to avoid ElementClickInterceptedException
             paper_detailed_info.find_element(By.TAG_NAME, "a").send_keys(
                 Keys.CONTROL + Keys.HOME
