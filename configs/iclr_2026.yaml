@@ -1,0 +1,7 @@
+conference:
+  name: "ICLR"
+  year: 2026
+  venue_id: "ICLR.cc/2026/Conference"
+  selections:
+    oral: "ICLR 2026 Oral"
+    poster: "ICLR 2026 Poster"
