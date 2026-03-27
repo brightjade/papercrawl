@@ -1,0 +1,8 @@
+conference:
+  name: "ICLR"
+  year: 2024
+  venue_id: "ICLR.cc/2024/Conference"
+  selections:
+    oral: "ICLR 2024 oral"
+    spotlight: "ICLR 2024 spotlight"
+    poster: "ICLR 2024 poster"

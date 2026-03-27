@@ -36,13 +36,20 @@ uv run ppr citations iclr_2025
 
 | ID | Source | Selections |
 |---|---|---|
+| `iclr_2024` | OpenReview | oral, spotlight, poster |
 | `iclr_2025` | OpenReview | oral, spotlight, poster |
 | `iclr_2026` | OpenReview | oral, poster |
+| `neurips_2024` | OpenReview | oral, spotlight, poster |
 | `neurips_2025` | OpenReview | oral, spotlight, poster |
+| `icml_2024` | OpenReview | oral, spotlight, poster |
 | `icml_2025` | OpenReview | oral, spotlight, poster |
+| `colm_2024` | OpenReview | all |
 | `colm_2025` | OpenReview | all |
+| `emnlp_2024` | Web scrape | main, findings, industry |
 | `emnlp_2025` | Web scrape | main, findings, industry |
+| `acl_2024` | Web scrape | main, findings |
 | `acl_2025` | Web scrape | main, findings, industry |
+| `naacl_2024` | Web scrape | main, findings, industry |
 | `naacl_2025` | Web scrape | main, findings, industry |
 
 ## Output
