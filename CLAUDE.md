@@ -6,10 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 uv sync                                        # Install dependencies
-uv run orc crawl iclr_2025                     # Crawl one conference
-uv run orc crawl iclr_2025 neurips_2025        # Crawl multiple (one OpenReview login)
-uv run orc citations iclr_2025                 # Fetch citation counts
-uv run orc discover "ICLR.cc/2025/Conference"  # Find venue IDs
+uv run ppr crawl iclr_2025                     # Crawl one conference
+uv run ppr crawl iclr_2025 neurips_2025        # Crawl multiple (one OpenReview login)
+uv run ppr citations iclr_2025                 # Fetch citation counts
 ./run.sh iclr_2025 neurips_2025 --citations    # Pipeline script
 uv run pytest tests/                           # Run all tests
 uv run pytest tests/test_models.py::TestPaper::test_to_dict_full  # Single test
@@ -35,13 +34,13 @@ Both produce JSONL. Citations work the same for both.
 
 ### Key modules
 
-- `cli.py` -- Entry point (`orc`) with subcommands: `crawl`, `citations`, `discover`. `crawl` accepts multiple conference IDs, logs into OpenReview once, scrapes ACL-family conferences without auth.
+- `cli.py` -- Entry point (`ppr`) with subcommands: `crawl`, `citations`. `crawl` accepts multiple conference IDs, logs into OpenReview once, scrapes ACL-family conferences without auth.
 - `api_client.py` -- `create_openreview_client()` logs in once, `OpenReviewAPIClient` takes the client + config. Fetches all accepted papers in one API call, filters by `venue` string client-side.
 - `acl_scraper.py` -- Web scraper for conferences not on OpenReview. `SCRAPERS` dict maps conference IDs to scraper functions. Handles both separate-page (EMNLP, ACL) and single-page (NAACL) layouts. Skips entries without authors (filters footer noise).
 - `citations.py` -- Async citation fetching with `httpx` + `asyncio.Semaphore`. Streams results to a temp file with tqdm progress bar, then writes sorted final file.
 - `models.py` -- `Paper` dataclass with `selection` field. `to_dict()` excludes `None` and empty-string fields.
 - `config.py` -- `CrawlConfig` from YAML. `conference_id` derived from filename, output path derived from that.
-- `run.sh` -- Shell script: passes all conferences to one `orc crawl`, then runs `orc citations` per conference if `--citations` is set.
+- `run.sh` -- Shell script: passes all conferences to one `ppr crawl`, then runs `ppr citations` per conference if `--citations` is set.
 
 ### OpenReview API notes
 

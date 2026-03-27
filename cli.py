@@ -58,14 +58,14 @@ def _add_auth_args(parser: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="orc",
+        prog="ppr",
         description="Crawl accepted papers from OpenReview conferences.",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # crawl
     crawl_parser = subparsers.add_parser(
-        "crawl", help="Fetch accepted papers (e.g., orc crawl iclr_2025 neurips_2025)"
+        "crawl", help="Fetch accepted papers (e.g., ppr crawl iclr_2025 neurips_2025)"
     )
     crawl_parser.add_argument(
         "conferences", nargs="+",
@@ -75,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # citations
     cite_parser = subparsers.add_parser(
-        "citations", help="Fetch citation counts (e.g., orc citations iclr_2025)"
+        "citations", help="Fetch citation counts (e.g., ppr citations iclr_2025)"
     )
     cite_parser.add_argument(
         "conference", help="Conference ID (e.g., iclr_2025).",
@@ -88,16 +88,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--concurrency", type=int, default=5,
         help="Max concurrent requests (default: 5 without key, use 50 with key).",
     )
-
-    # discover
-    discover_parser = subparsers.add_parser(
-        "discover", help="Discover venue IDs for a conference"
-    )
-    discover_parser.add_argument(
-        "venue_prefix",
-        help="Venue prefix to search (e.g., ICLR.cc/2025/Conference).",
-    )
-    _add_auth_args(discover_parser)
 
     return parser
 
@@ -143,7 +133,7 @@ def cmd_citations(args):
     input_path = _resolve_input(args.conference)
     if not input_path.exists():
         raise FileNotFoundError(
-            f"No papers found at {input_path}. Run 'orc crawl {args.conference}' first."
+            f"No papers found at {input_path}. Run 'ppr crawl {args.conference}' first."
         )
 
     with open(input_path, encoding="utf-8") as f:
@@ -172,24 +162,6 @@ def cmd_citations(args):
     logger.info("Saved %d papers (sorted by citations) to %s", len(sorted_papers), final_path)
 
 
-def cmd_discover(args):
-    or_client = create_openreview_client(
-        username=args.username, password=args.password
-    )
-    config = CrawlConfig(
-        name="", year=0, venue_id="", selections={},
-        conference_id="",
-    )
-    client = OpenReviewAPIClient(config, or_client)
-    members = client.discover_venue_ids(args.venue_prefix)
-    if members:
-        logger.info("Found venue members for '%s':", args.venue_prefix)
-        for m in members:
-            print(f"  {m}")
-    else:
-        logger.warning("No members found for '%s'", args.venue_prefix)
-
-
 def main():
     parser = build_parser()
     args = parser.parse_args()
@@ -197,7 +169,6 @@ def main():
     commands = {
         "crawl": cmd_crawl,
         "citations": cmd_citations,
-        "discover": cmd_discover,
     }
 
     if args.command in commands:

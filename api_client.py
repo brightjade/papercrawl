@@ -105,16 +105,3 @@ class OpenReviewAPIClient:
                 f.write(paper.to_json() + "\n")
 
         logger.info("Saved %d papers to %s", len(papers), save_path)
-
-    def discover_venue_ids(self, prefix: str) -> list[str]:
-        """List venue IDs matching a prefix. Useful for finding the right
-        venue ID strings when creating new configs."""
-        logger.info("Discovering venue IDs with prefix: %s", prefix)
-        try:
-            venues = self.client.get_group(prefix)
-        except openreview.OpenReviewException as e:
-            logger.error("Could not find venue '%s': %s", prefix, e)
-            return []
-        if venues and hasattr(venues, "members"):
-            return venues.members
-        return []

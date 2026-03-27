@@ -1,4 +1,4 @@
-# ORC - Conference Paper Crawler
+# papercrawl
 
 Retrieve accepted paper metadata from ML/DL/NLP conferences. Uses the OpenReview API for ML conferences and web scraping for ACL-family conferences.
 
@@ -22,17 +22,14 @@ Fill in your credentials in `.env`. Not needed for ACL-family conferences (scrap
 
 ```bash
 # Crawl one or more conferences
-uv run orc crawl iclr_2025
-uv run orc crawl iclr_2025 neurips_2025 emnlp_2025
+uv run ppr crawl iclr_2025
+uv run ppr crawl iclr_2025 neurips_2025 emnlp_2025
 
 # Fetch citation counts (with progress bar)
-uv run orc citations iclr_2025
+uv run ppr citations iclr_2025
 
 # Pipeline: crawl + citations for multiple conferences
 ./run.sh iclr_2025 neurips_2025 emnlp_2025 --citations
-
-# Discover OpenReview venue IDs for a new conference
-uv run orc discover "ICLR.cc/2025/Conference"
 ```
 
 ## Available conferences

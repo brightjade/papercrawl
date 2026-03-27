@@ -34,13 +34,13 @@ if [[ ${#conferences[@]} -eq 0 ]]; then
 fi
 
 echo "Crawling: ${conferences[*]}"
-uv run orc crawl "${conferences[@]}"
+uv run ppr crawl "${conferences[@]}"
 
 if $citations; then
     for conf in "${conferences[@]}"; do
         echo ""
         echo "Fetching citations: $conf"
-        uv run orc citations "$conf"
+        uv run ppr citations "$conf"
     done
 fi
 
