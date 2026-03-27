@@ -1,5 +1,6 @@
 import logging
 import os
+from collections import Counter
 
 import openreview
 
@@ -89,8 +90,6 @@ class OpenReviewAPIClient:
             )
             papers.append(paper)
 
-        # Log counts per selection
-        from collections import Counter
         counts = Counter(p.selection for p in papers)
         for sel, count in counts.most_common():
             logger.info("  %s: %d papers", sel, count)

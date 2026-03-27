@@ -26,9 +26,8 @@ logger = logging.getLogger(__name__)
 
 
 def _available_conferences() -> list[str]:
-    from_configs = sorted(p.stem for p in CONFIGS_DIR.glob("*.yaml"))
-    from_scrapers = sorted(SCRAPERS.keys())
-    return sorted(set(from_configs + from_scrapers))
+    from_configs = {p.stem for p in CONFIGS_DIR.glob("*.yaml")}
+    return sorted(from_configs | SCRAPERS.keys())
 
 
 def _resolve_input(conf_id: str) -> Path:
