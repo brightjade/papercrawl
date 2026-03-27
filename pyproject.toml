@@ -1,17 +1,34 @@
-[tool.poetry]
-name = "openreview-crawler"
+[project]
+name = "orc"
 version = "0.1.0"
-description = ""
-authors = ["hey-yujin <yujinbaek@kaist.ac.kr>"]
+description = "Crawl accepted papers and citation data from OpenReview conferences"
+authors = [{ name = "Minseok Choi", email = "minseok.choi@kaist.ac.kr" }]
 readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pyyaml>=6.0",
+    "openreview-py>=1.40",
+    "httpx>=0.28",
+    "tqdm>=4.67",
+    "python-dotenv>=1.2.2",
+    "beautifulsoup4>=4.14.3",
+    "requests>=2.33.0",
+]
 
-[tool.poetry.dependencies]
-python = "^3.11"
-pyyaml = "^6.0.1"
-selenium = "4.2.0"
-webdriver-manager = "4.0.1"
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.25",
+    "respx>=0.22",
+]
 
+[project.scripts]
+orc = "cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+exclude = ["tests", "configs", "outputs", "images"]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
