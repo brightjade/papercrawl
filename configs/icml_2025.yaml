@@ -1,0 +1,8 @@
+conference:
+  name: "ICML"
+  year: 2025
+  venue_id: "ICML.cc/2025/Conference"
+  selections:
+    oral: "ICML 2025 oral"
+    spotlight: "ICML 2025 spotlightposter"
+    poster: "ICML 2025 poster"

@@ -1,0 +1,6 @@
+conference:
+  name: "COLM"
+  year: 2025
+  venue_id: "colmweb.org/COLM/2025/Conference"
+  selections:
+    all: "COLM 2025"
