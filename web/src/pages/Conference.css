@@ -1,0 +1,55 @@
+.conference-controls {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+.conference-filters {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.track-select,
+.sort-select {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.track-select:focus,
+.sort-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.paper-table-header {
+  display: grid;
+  grid-template-columns: 3rem 1fr auto 5rem;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 2px solid var(--border);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.col-rank {
+  text-align: center;
+}
+
+.col-citations {
+  text-align: right;
+}
+
+.paper-list {
+  margin-bottom: 3rem;
+}
