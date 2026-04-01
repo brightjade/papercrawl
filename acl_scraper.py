@@ -175,11 +175,27 @@ def _scrape_paragraph_pages(base_url: str, pages: dict[str, str]) -> list[Paper]
     return all_papers
 
 
+def scrape_emnlp_2023() -> list[Paper]:
+    return _scrape_paragraph_pages("https://2023.emnlp.org", {
+        "main": "/program/accepted_main_conference/",
+        "findings": "/program/accepted_findings/",
+        "industry": "/program/industry/",
+    })
+
+
 def scrape_emnlp_2024() -> list[Paper]:
     return _scrape_paragraph_pages("https://2024.emnlp.org", {
         "main": "/program/accepted_main_conference/",
         "findings": "/program/accepted_findings/",
         "industry": "/program/industry/",
+    })
+
+
+def scrape_acl_2023() -> list[Paper]:
+    return _scrape_paragraph_pages("https://2023.aclweb.org", {
+        "main": "/program/accepted_main_conference/",
+        "findings": "/program/accepted_findings/",
+        "industry": "/program/accepted_industry_track/",
     })
 
 
@@ -212,6 +228,8 @@ def scrape_naacl_2024() -> list[Paper]:
 
 
 SCRAPERS = {
+    "emnlp_2023": scrape_emnlp_2023,
+    "acl_2023": scrape_acl_2023,
     "emnlp_2024": scrape_emnlp_2024,
     "acl_2024": scrape_acl_2024,
     "naacl_2024": scrape_naacl_2024,
