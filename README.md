@@ -25,11 +25,11 @@ Fill in your credentials in `.env`. Not needed for non-OpenReview conferences (s
 uv run ppr crawl iclr_2025
 uv run ppr crawl iclr_2025 neurips_2025 emnlp_2025
 
-# Fetch citation counts (with progress bar)
-uv run ppr citations iclr_2025
+# Enrich with citation counts and abstracts (with progress bar)
+uv run ppr enrich iclr_2025
 
-# Pipeline: crawl + citations for multiple conferences
-./run.sh iclr_2025 neurips_2025 emnlp_2025 --citations
+# Pipeline: crawl + enrich for multiple conferences
+./run.sh iclr_2025 neurips_2025 emnlp_2025 --enrich
 ```
 
 ## Available conferences
@@ -70,10 +70,10 @@ All output goes to `outputs/<conference_id>/`:
 ```
 outputs/iclr_2025/
   papers.jsonl                    # all accepted papers
-  papers_with_citations.jsonl     # sorted by citation count (after running citations)
+  papers_with_citations.jsonl     # sorted by citation count, with abstracts (after running enrich)
 ```
 
-OpenReview papers include title, authors, selection, keywords, abstract, PDF link, and forum ID. Web-scraped papers include title, authors, and selection.
+OpenReview papers include title, authors, selection, keywords, abstract, PDF link, and forum ID. Web-scraped papers include title, authors, and selection. The `enrich` command adds citation counts and abstracts (from Semantic Scholar) to all papers. Existing abstracts (e.g., from OpenReview) are preserved. Enrichment is resumable — if interrupted, re-running `ppr enrich` picks up where it left off.
 
 ## Testing
 

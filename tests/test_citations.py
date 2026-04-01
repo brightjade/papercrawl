@@ -16,13 +16,14 @@ class TestCitationFetcher:
         respx.get(SEMANTIC_SCHOLAR_URL).mock(
             return_value=httpx.Response(
                 200,
-                json={"data": [{"title": "Test", "citationCount": 42}]},
+                json={"data": [{"title": "Test", "citationCount": 42, "abstract": "An abstract."}]},
             )
         )
         fetcher = CitationFetcher()
         async with httpx.AsyncClient() as client:
-            result = await fetcher._fetch_one(client, "Test Paper")
-        assert result == 42
+            count, abstract = await fetcher._fetch_one(client, "Test Paper")
+        assert count == 42
+        assert abstract == "An abstract."
 
     @respx.mock
     @pytest.mark.asyncio
@@ -32,8 +33,9 @@ class TestCitationFetcher:
         )
         fetcher = CitationFetcher()
         async with httpx.AsyncClient() as client:
-            result = await fetcher._fetch_one(client, "Unknown Paper")
-        assert result is None
+            count, abstract = await fetcher._fetch_one(client, "Unknown Paper")
+        assert count is None
+        assert abstract is None
 
     @respx.mock
     @pytest.mark.asyncio
@@ -43,13 +45,14 @@ class TestCitationFetcher:
             httpx.Response(429),
             httpx.Response(
                 200,
-                json={"data": [{"title": "Test", "citationCount": 10}]},
+                json={"data": [{"title": "Test", "citationCount": 10, "abstract": None}]},
             ),
         ]
         fetcher = CitationFetcher()
         async with httpx.AsyncClient() as client:
-            result = await fetcher._fetch_one(client, "Test")
-        assert result == 10
+            count, abstract = await fetcher._fetch_one(client, "Test")
+        assert count == 10
+        assert abstract is None
 
     @respx.mock
     @pytest.mark.asyncio
@@ -57,13 +60,14 @@ class TestCitationFetcher:
         respx.get(SEMANTIC_SCHOLAR_URL).mock(
             return_value=httpx.Response(
                 200,
-                json={"data": [{"title": "T", "citationCount": 5}]},
+                json={"data": [{"title": "T", "citationCount": 5, "abstract": "Abs"}]},
             )
         )
         fetcher = CitationFetcher(max_concurrency=2)
         results = await fetcher.fetch_all(["Paper A", "Paper B", "Paper C"])
         assert len(results) == 3
-        assert all(r == 5 for r in results)
+        assert all(count == 5 for count, _ in results)
+        assert all(abstract == "Abs" for _, abstract in results)
 
     @respx.mock
     @pytest.mark.asyncio
@@ -73,8 +77,9 @@ class TestCitationFetcher:
         )
         fetcher = CitationFetcher()
         async with httpx.AsyncClient() as client:
-            result = await fetcher._fetch_one(client, "Fail Paper")
-        assert result is None
+            count, abstract = await fetcher._fetch_one(client, "Fail Paper")
+        assert count is None
+        assert abstract is None
 
     @respx.mock
     @pytest.mark.asyncio
@@ -82,7 +87,7 @@ class TestCitationFetcher:
         respx.get(SEMANTIC_SCHOLAR_URL).mock(
             return_value=httpx.Response(
                 200,
-                json={"data": [{"title": "T", "citationCount": 7}]},
+                json={"data": [{"title": "T", "citationCount": 7, "abstract": "Some abstract"}]},
             )
         )
         papers = [
@@ -95,6 +100,7 @@ class TestCitationFetcher:
 
         assert len(results) == 2
         assert all(p.citation_count == 7 for p in results)
+        assert all(p.abstract == "Some abstract" for p in results)
 
         # Check file was written
         lines = output.read_text().strip().split("\n")
@@ -102,3 +108,23 @@ class TestCitationFetcher:
         for line in lines:
             data = json.loads(line)
             assert data["citation_count"] == 7
+            assert data["abstract"] == "Some abstract"
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_fetch_and_stream_preserves_existing_abstract(self, tmp_path):
+        respx.get(SEMANTIC_SCHOLAR_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={"data": [{"title": "T", "citationCount": 3, "abstract": "S2 abstract"}]},
+            )
+        )
+        papers = [
+            Paper(title="A", link="L1", authors=["X"], selection="oral", abstract="OpenReview abstract"),
+        ]
+        output = tmp_path / "enriched.jsonl"
+        fetcher = CitationFetcher(max_concurrency=2)
+        results = await fetcher.fetch_and_stream(papers, output)
+
+        assert results[0].abstract == "OpenReview abstract"
+        assert results[0].citation_count == 3
