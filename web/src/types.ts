@@ -7,6 +7,13 @@ export interface Paper {
   link?: string;
   forum_id?: string;
   citation_count?: number;
+  influential_citation_count?: number;
+  reference_count?: number;
+  tldr?: string;
+  publication_date?: string;
+  fields_of_study?: string[];
+  open_access_pdf?: string;
+  external_ids?: Record<string, string>;
 }
 
 export interface ConferenceMeta {

@@ -29,17 +29,42 @@ export function PaperRow({ paper, rank }: { paper: Paper; rank: number }) {
           </div>
         </div>
         <TrackBadge track={paper.selection} />
-        <span className="paper-citations">
-          {paper.citation_count != null
-            ? paper.citation_count.toLocaleString()
-            : "\u2014"}
-        </span>
+        <div className="paper-citations-col">
+          <span className="paper-citations">
+            {paper.citation_count != null
+              ? paper.citation_count.toLocaleString()
+              : "\u2014"}
+          </span>
+          {paper.influential_citation_count != null && paper.influential_citation_count > 0 && (
+            <span className="paper-influential">
+              {paper.influential_citation_count} influential
+            </span>
+          )}
+        </div>
       </div>
       {expanded && (
         <div className="paper-details">
+          {paper.tldr && (
+            <p className="paper-tldr">{paper.tldr}</p>
+          )}
           {paper.abstract && <p className="paper-abstract">{paper.abstract}</p>}
-          {paper.keywords.length > 0 && (
+
+          <div className="paper-meta-row">
+            {paper.publication_date && (
+              <span className="paper-meta-item">Published: {paper.publication_date}</span>
+            )}
+            {paper.reference_count != null && (
+              <span className="paper-meta-item">{paper.reference_count} references</span>
+            )}
+          </div>
+
+          {(paper.keywords.length > 0 || (paper.fields_of_study && paper.fields_of_study.length > 0)) && (
             <div className="paper-keywords">
+              {paper.fields_of_study?.map((f, i) => (
+                <span key={`fos-${i}`} className="field-tag">
+                  {f}
+                </span>
+              ))}
               {paper.keywords.map((kw, i) => (
                 <span key={i} className="keyword-tag">
                   {kw}
@@ -47,10 +72,16 @@ export function PaperRow({ paper, rank }: { paper: Paper; rank: number }) {
               ))}
             </div>
           )}
+
           <div className="paper-links">
             {paper.link && (
               <a href={paper.link} target="_blank" rel="noopener noreferrer">
                 PDF &rarr;
+              </a>
+            )}
+            {paper.open_access_pdf && paper.open_access_pdf !== paper.link && (
+              <a href={paper.open_access_pdf} target="_blank" rel="noopener noreferrer">
+                Open Access PDF &rarr;
               </a>
             )}
             {paper.forum_id && (
@@ -60,6 +91,24 @@ export function PaperRow({ paper, rank }: { paper: Paper; rank: number }) {
                 rel="noopener noreferrer"
               >
                 OpenReview &rarr;
+              </a>
+            )}
+            {paper.external_ids?.ArXiv && (
+              <a
+                href={`https://arxiv.org/abs/${paper.external_ids.ArXiv}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                arXiv &rarr;
+              </a>
+            )}
+            {paper.external_ids?.DOI && (
+              <a
+                href={`https://doi.org/${paper.external_ids.DOI}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                DOI &rarr;
               </a>
             )}
           </div>
