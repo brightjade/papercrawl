@@ -9,11 +9,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from api_client import OpenReviewAPIClient, create_openreview_client
-from acl_scraper import SCRAPERS
+from aaai_scraper import SCRAPERS as AAAI_SCRAPERS
+from acl_scraper import SCRAPERS as ACL_SCRAPERS
+from usenix_scraper import SCRAPERS as USENIX_SCRAPERS
+from api_client import OpenReviewAPIClient, create_openreview_client, create_openreview_v1_client
 from citations import CitationFetcher
 from config import CrawlConfig
 from models import Paper
+
+SCRAPERS = {**ACL_SCRAPERS, **AAAI_SCRAPERS, **USENIX_SCRAPERS}
 
 CONFIGS_DIR = Path(__file__).parent / "configs"
 OUTPUTS_DIR = Path(__file__).parent / "outputs"
@@ -92,7 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def cmd_crawl(args):
+def cmd_crawl(args: argparse.Namespace) -> None:
     conf_ids = args.conferences
 
     # Split into scraped vs OpenReview conferences
@@ -107,20 +111,30 @@ def cmd_crawl(args):
             f"Available: {', '.join(available)}"
         )
 
-    # Scrape ACL-family conferences (no login needed)
+    # Scrape non-OpenReview conferences (no login needed)
     for conf_id in scraped:
         papers = SCRAPERS[conf_id]()
         save_path = _save_papers(papers, conf_id)
         logger.info("Done: %s (%d papers) -> %s", conf_id, len(papers), save_path)
 
-    # Fetch OpenReview conferences (one login, reuse client)
+    # Fetch OpenReview conferences (one login per API version, reuse clients)
     if openreview:
-        or_client = create_openreview_client(
-            username=args.username, password=args.password
-        )
-        for conf_id in openreview:
-            config = CrawlConfig.from_yaml(CONFIGS_DIR / f"{conf_id}.yaml")
-            client = OpenReviewAPIClient(config, or_client)
+        configs = [CrawlConfig.from_yaml(CONFIGS_DIR / f"{c}.yaml") for c in openreview]
+        api_versions = {c.api_version for c in configs}
+
+        # Create only the clients needed (avoids unnecessary logins)
+        or_clients = {}
+        if 1 in api_versions:
+            or_clients[1] = create_openreview_v1_client(
+                username=args.username, password=args.password
+            )
+        if 2 in api_versions:
+            or_clients[2] = create_openreview_client(
+                username=args.username, password=args.password
+            )
+
+        for config in configs:
+            client = OpenReviewAPIClient(config, or_clients[config.api_version])
             papers = client.fetch_papers()
             client.save_papers(papers)
             logger.info(
@@ -129,7 +143,7 @@ def cmd_crawl(args):
             )
 
 
-def cmd_citations(args):
+def cmd_citations(args: argparse.Namespace) -> None:
     input_path = _resolve_input(args.conference)
     if not input_path.exists():
         raise FileNotFoundError(
@@ -162,7 +176,7 @@ def cmd_citations(args):
     logger.info("Saved %d papers (sorted by citations) to %s", len(sorted_papers), final_path)
 
 
-def main():
+def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
