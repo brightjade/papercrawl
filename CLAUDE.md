@@ -16,7 +16,7 @@ uv run pytest tests/test_models.py::TestPaper::test_to_dict_full  # Single test
 
 ## Convention
 
-Conference ID = config filename without `.yaml` (for OpenReview) or key in `SCRAPERS` dict (for ACL-family). Everything derives from it:
+Conference ID = config filename without `.yaml` (for OpenReview) or key in `SCRAPERS` dict (for ACL-family / AAAI / USENIX). Everything derives from it:
 
 - Config: `configs/<id>.yaml` (OpenReview only)
 - Scraper: `acl_scraper.SCRAPERS[<id>]` (ACL-family only)
@@ -25,18 +25,22 @@ Conference ID = config filename without `.yaml` (for OpenReview) or key in `SCRA
 
 ## Architecture
 
-Two data sources, one output format:
+Multiple data sources, one output format:
 
 - **OpenReview conferences** (ICLR, NeurIPS, ICML, COLM): conference ID -> YAML config -> `OpenReviewAPIClient` -> API (`get_all_notes` with invitation + venueid) -> filter by `venue` field -> `Paper` with `selection` tag
 - **ACL-family conferences** (EMNLP, ACL, NAACL): conference ID -> `acl_scraper.SCRAPERS` -> scrape `<li><strong>Title</strong><em>Authors</em></li>` from conference website -> `Paper` with `selection` tag
+- **AAAI**: conference ID -> `aaai_scraper.SCRAPERS` -> scrape OJS issue pages from `ojs.aaai.org` -> `Paper` with `selection` tag
+- **USENIX Security**: conference ID -> `usenix_scraper.SCRAPERS` -> scrape `article.node-paper` from `technical-sessions` page -> `Paper` with `selection` tag. Requires browser User-Agent header.
 
-Both produce JSONL. Citations work the same for both.
+All produce JSONL. Citations work the same for all sources.
 
 ### Key modules
 
 - `cli.py` -- Entry point (`ppr`) with subcommands: `crawl`, `citations`. `crawl` accepts multiple conference IDs, logs into OpenReview once, scrapes ACL-family conferences without auth.
 - `api_client.py` -- `create_openreview_client()` logs in once, `OpenReviewAPIClient` takes the client + config. Fetches all accepted papers in one API call, filters by `venue` string client-side.
-- `acl_scraper.py` -- Web scraper for conferences not on OpenReview. `SCRAPERS` dict maps conference IDs to scraper functions. Handles both separate-page (EMNLP, ACL) and single-page (NAACL) layouts. Skips entries without authors (filters footer noise).
+- `acl_scraper.py` -- Web scraper for ACL-family conferences not on OpenReview. `SCRAPERS` dict maps conference IDs to scraper functions. Handles both separate-page (EMNLP, ACL) and single-page (NAACL) layouts. Skips entries without authors (filters footer noise).
+- `aaai_scraper.py` -- Web scraper for AAAI proceedings from `ojs.aaai.org`. Scrapes multiple OJS issue pages per year (technical tracks + special tracks).
+- `usenix_scraper.py` -- Web scraper for USENIX Security. Scrapes `technical-sessions` page (all papers on one page per year). Parses `Name1 and Name2,Affiliation;Name3,Affiliation` author format. Needs browser UA to avoid 403.
 - `citations.py` -- Async citation fetching with `httpx` + `asyncio.Semaphore`. Streams results to a temp file with tqdm progress bar, then writes sorted final file.
 - `models.py` -- `Paper` dataclass with `selection` field. `to_dict()` excludes `None` and empty-string fields.
 - `config.py` -- `CrawlConfig` from YAML. `conference_id` derived from filename, output path derived from that.
