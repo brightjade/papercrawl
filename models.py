@@ -24,7 +24,7 @@ class Paper:
     def from_dict(cls, data: dict) -> "Paper":
         return cls(
             title=data["title"],
-            link=data["link"],
+            link=data.get("link", ""),
             authors=data.get("authors", []),
             keywords=data.get("keywords", []),
             abstract=data.get("abstract", ""),
