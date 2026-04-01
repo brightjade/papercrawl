@@ -78,3 +78,53 @@ class TestPaper:
         )
         assert isinstance(paper.keywords, list)
         assert len(paper.keywords) == 2
+
+    def test_new_enrichment_fields(self):
+        paper = Paper(
+            title="T",
+            link="L",
+            authors=["A"],
+            citation_count=42,
+            influential_citation_count=5,
+            reference_count=30,
+            tldr="A short summary.",
+            publication_date="2025-01-15",
+            fields_of_study=["Computer Science"],
+            open_access_pdf="https://arxiv.org/pdf/1234.pdf",
+            external_ids={"ArXiv": "1234.5678", "DOI": "10.1234/test"},
+        )
+        d = paper.to_dict()
+        assert d["influential_citation_count"] == 5
+        assert d["reference_count"] == 30
+        assert d["tldr"] == "A short summary."
+        assert d["publication_date"] == "2025-01-15"
+        assert d["fields_of_study"] == ["Computer Science"]
+        assert d["open_access_pdf"] == "https://arxiv.org/pdf/1234.pdf"
+        assert d["external_ids"] == {"ArXiv": "1234.5678", "DOI": "10.1234/test"}
+
+    def test_to_dict_excludes_empty_collections(self):
+        paper = Paper(title="T", link="L", authors=["A"])
+        d = paper.to_dict()
+        assert "fields_of_study" not in d
+        assert "external_ids" not in d
+
+    def test_from_dict_with_new_fields(self):
+        data = {
+            "title": "T",
+            "link": "L",
+            "authors": ["A"],
+            "influential_citation_count": 3,
+            "reference_count": 20,
+            "tldr": "Summary",
+            "publication_date": "2025-06-01",
+            "fields_of_study": ["CS", "Math"],
+            "open_access_pdf": "https://example.com/paper.pdf",
+            "external_ids": {"DOI": "10.1234"},
+        }
+        paper = Paper.from_dict(data)
+        assert paper.influential_citation_count == 3
+        assert paper.reference_count == 20
+        assert paper.tldr == "Summary"
+        assert paper.fields_of_study == ["CS", "Math"]
+        assert paper.open_access_pdf == "https://example.com/paper.pdf"
+        assert paper.external_ids == {"DOI": "10.1234"}

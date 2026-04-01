@@ -28,12 +28,11 @@ class CitationFetcher:
             await asyncio.sleep(1.0 - elapsed)
         self._last_request_time = asyncio.get_event_loop().time()
 
-    async def _fetch_one(
-        self, client: httpx.AsyncClient, title: str
-    ) -> tuple[int | None, str | None]:
+    async def _fetch_one(self, client: httpx.AsyncClient, title: str) -> dict:
+        """Fetch metadata for a single paper. Returns a dict of enrichment fields."""
         params = {
             "query": title,
-            "fields": "title,citationCount,abstract",
+            "fields": "title,citationCount,abstract,influentialCitationCount,referenceCount,tldr,publicationDate,fieldsOfStudy,openAccessPdf,externalIds",
             "limit": 1,
         }
         max_retries = 5
@@ -53,16 +52,35 @@ class CitationFetcher:
                     response.raise_for_status()
                     data = response.json()
                     entry = data["data"][0]
-                    return entry.get("citationCount"), entry.get("abstract")
+
+                    # Extract tldr text from nested object
+                    tldr_obj = entry.get("tldr")
+                    tldr_text = tldr_obj.get("text", "") if isinstance(tldr_obj, dict) else ""
+
+                    # Extract open access PDF URL from nested object
+                    pdf_obj = entry.get("openAccessPdf")
+                    pdf_url = pdf_obj.get("url", "") if isinstance(pdf_obj, dict) else ""
+
+                    return {
+                        "citation_count": entry.get("citationCount"),
+                        "abstract": entry.get("abstract"),
+                        "influential_citation_count": entry.get("influentialCitationCount"),
+                        "reference_count": entry.get("referenceCount"),
+                        "tldr": tldr_text,
+                        "publication_date": entry.get("publicationDate") or "",
+                        "fields_of_study": entry.get("fieldsOfStudy") or [],
+                        "open_access_pdf": pdf_url,
+                        "external_ids": entry.get("externalIds") or {},
+                    }
 
                 except httpx.HTTPStatusError:
                     await asyncio.sleep(2 ** attempt)
                 except (KeyError, IndexError, TypeError):
-                    return None, None
+                    return {}
                 except httpx.RequestError:
                     await asyncio.sleep(2 ** attempt)
 
-        return None, None
+        return {}
 
     async def fetch_and_stream(
         self,
@@ -77,17 +95,25 @@ class CitationFetcher:
         progress = tqdm(total=total, desc="Enriching papers", unit="paper")
 
         async def _process(idx: int, paper: Paper, client: httpx.AsyncClient, f):
-            count, abstract = await self._fetch_one(client, paper.title)
-            paper.citation_count = count
-            if not paper.abstract and abstract:
-                paper.abstract = abstract
+            enrichment = await self._fetch_one(client, paper.title)
+            if enrichment:
+                paper.citation_count = enrichment.get("citation_count")
+                paper.influential_citation_count = enrichment.get("influential_citation_count")
+                paper.reference_count = enrichment.get("reference_count")
+                paper.publication_date = enrichment.get("publication_date", "")
+                paper.fields_of_study = enrichment.get("fields_of_study", [])
+                paper.open_access_pdf = enrichment.get("open_access_pdf", "")
+                paper.external_ids = enrichment.get("external_ids", {})
+                if enrichment.get("tldr"):
+                    paper.tldr = enrichment["tldr"]
+                if not paper.abstract and enrichment.get("abstract"):
+                    paper.abstract = enrichment["abstract"]
             results[idx] = paper
-            # Stream to disk immediately
             line = paper.to_json() + "\n"
             f.write(line)
             f.flush()
             progress.update(1)
-            found = count if count is not None else "?"
+            found = paper.citation_count if paper.citation_count is not None else "?"
             progress.set_postfix_str(f"last: {found} cites")
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -103,7 +129,7 @@ class CitationFetcher:
         progress.close()
         return results
 
-    async def fetch_all(self, titles: list[str]) -> list[tuple[int | None, str | None]]:
+    async def fetch_all(self, titles: list[str]) -> list[dict]:
         """Simple batch fetch without streaming."""
         async with httpx.AsyncClient(timeout=30.0) as client:
             tasks = [self._fetch_one(client, t) for t in titles]
