@@ -1,0 +1,33 @@
+.trends-section {
+  margin-bottom: 3rem;
+}
+
+.trends-section h3 {
+  font-size: 1.15rem;
+  margin-bottom: 1rem;
+}
+
+.trends-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.topn-select {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+}
+
+.chart-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  box-shadow: var(--shadow);
+}
