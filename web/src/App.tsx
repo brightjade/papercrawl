@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
 import { useDarkMode } from "./hooks/useDarkMode";
+import { Home } from "./pages/Home";
 import "./App.css";
 
 function Placeholder({ name }: { name: string }) {
@@ -27,7 +28,7 @@ export default function App() {
           </nav>
         </header>
         <Routes>
-          <Route path="/" element={<Placeholder name="Home" />} />
+          <Route path="/" element={<Home />} />
           <Route
             path="/conference/:id"
             element={<Placeholder name="Conference" />}
