@@ -10,11 +10,10 @@ from models import Paper
 logger = logging.getLogger(__name__)
 
 
-def create_openreview_client(
+def _resolve_credentials(
     username: str | None = None,
     password: str | None = None,
-) -> openreview.api.OpenReviewClient:
-    """Create and authenticate an OpenReview client (one login)."""
+) -> tuple[str | None, str | None]:
     resolved_username = username or os.environ.get("OPENREVIEW_USERNAME")
     resolved_password = password or os.environ.get("OPENREVIEW_PASSWORD")
     if not resolved_username or not resolved_password:
@@ -24,10 +23,32 @@ def create_openreview_client(
             "or pass --username/--password. "
             "Sign up for free at https://openreview.net/signup"
         )
+    return resolved_username, resolved_password
+
+
+def create_openreview_client(
+    username: str | None = None,
+    password: str | None = None,
+) -> openreview.api.OpenReviewClient:
+    """Create and authenticate an OpenReview API v2 client."""
+    u, p = _resolve_credentials(username, password)
     return openreview.api.OpenReviewClient(
         baseurl="https://api2.openreview.net",
-        username=resolved_username,
-        password=resolved_password,
+        username=u,
+        password=p,
+    )
+
+
+def create_openreview_v1_client(
+    username: str | None = None,
+    password: str | None = None,
+) -> openreview.Client:
+    """Create and authenticate an OpenReview API v1 client."""
+    u, p = _resolve_credentials(username, password)
+    return openreview.Client(
+        baseurl="https://api.openreview.net",
+        username=u,
+        password=p,
     )
 
 
@@ -35,7 +56,7 @@ class OpenReviewAPIClient:
     def __init__(
         self,
         config: CrawlConfig,
-        client: openreview.api.OpenReviewClient,
+        client: openreview.api.OpenReviewClient | openreview.Client,
     ):
         self.config = config
         self.client = client
@@ -44,18 +65,26 @@ class OpenReviewAPIClient:
         """Fetch accepted papers, tagged with their selection type.
         If selections is None, uses all selections from config."""
         sel_map = selections or self.config.selections
-        invitation = f"{self.config.venue_id}/-/Submission"
+        is_v1 = self.config.api_version == 1
+
+        if is_v1:
+            invitation = f"{self.config.venue_id}/-/Blind_Submission"
+        else:
+            invitation = f"{self.config.venue_id}/-/Submission"
 
         logger.info(
-            "Fetching accepted papers for %s %s (invitation=%s)",
-            self.config.name, self.config.year, invitation,
+            "Fetching accepted papers for %s %s (invitation=%s, api_v%d)",
+            self.config.name, self.config.year, invitation, self.config.api_version,
         )
 
         try:
-            notes = self.client.get_all_notes(
-                invitation=invitation,
-                content={"venueid": self.config.venue_id},
-            )
+            if is_v1:
+                notes = self.client.get_all_notes(invitation=invitation)
+            else:
+                notes = self.client.get_all_notes(
+                    invitation=invitation,
+                    content={"venueid": self.config.venue_id},
+                )
         except openreview.OpenReviewException as e:
             logger.error(
                 "Failed to fetch papers: %s. "
@@ -71,14 +100,19 @@ class OpenReviewAPIClient:
 
         papers = []
         for note in notes:
-            venue_str = note.content.get("venue", {}).get("value", "")
+            if is_v1:
+                venue_str = note.content.get("venue", "")
+                content = note.content
+            else:
+                venue_str = note.content.get("venue", {}).get("value", "")
+                content = {
+                    k: v.get("value") for k, v in note.content.items()
+                }
+
             selection = venue_to_selection.get(venue_str)
             if selection is None:
                 continue
 
-            content = {
-                k: v.get("value") for k, v in note.content.items()
-            }
             paper = Paper(
                 title=content.get("title", ""),
                 link=f"https://openreview.net/pdf?id={note.forum}",

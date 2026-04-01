@@ -11,6 +11,7 @@ class CrawlConfig:
     venue_id: str  # e.g., "ICLR.cc/2025/Conference"
     selections: dict[str, str]  # selection_name -> venue string (e.g., "ICLR 2025 Oral")
     conference_id: str  # e.g., "iclr_2025" (derived from filename)
+    api_version: int = 2  # OpenReview API version (1 or 2)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "CrawlConfig":
@@ -44,12 +45,15 @@ class CrawlConfig:
 
         conference_id = path.stem  # e.g., "iclr_2025"
 
+        api_version = conference.get("api_version", 2)
+
         return cls(
             name=name,
             year=year,
             venue_id=venue_id,
             selections=selections,
             conference_id=conference_id,
+            api_version=api_version,
         )
 
     def get_save_path(self) -> Path:
