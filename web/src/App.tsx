@@ -1,11 +1,10 @@
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
 import { useDarkMode } from "./hooks/useDarkMode";
 import { Home } from "./pages/Home";
+import { Conference } from "./pages/Conference";
+import { Author } from "./pages/Author";
+import { Trends } from "./pages/Trends";
 import "./App.css";
-
-function Placeholder({ name }: { name: string }) {
-  return <div className="loading">{name} page — coming soon</div>;
-}
 
 export default function App() {
   const { dark, toggle } = useDarkMode();
@@ -29,12 +28,9 @@ export default function App() {
         </header>
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route
-            path="/conference/:id"
-            element={<Placeholder name="Conference" />}
-          />
-          <Route path="/author/:name" element={<Placeholder name="Author" />} />
-          <Route path="/trends" element={<Placeholder name="Trends" />} />
+          <Route path="/conference/:id" element={<Conference />} />
+          <Route path="/author/:name" element={<Author />} />
+          <Route path="/trends" element={<Trends />} />
         </Routes>
       </div>
     </BrowserRouter>
