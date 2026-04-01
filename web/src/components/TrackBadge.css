@@ -1,0 +1,16 @@
+.track-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--badge-color) 12%, transparent);
+  color: var(--badge-color);
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .track-badge {
+  background: color-mix(in srgb, var(--badge-color) 20%, transparent);
+}
