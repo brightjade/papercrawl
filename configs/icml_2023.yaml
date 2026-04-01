@@ -1,0 +1,7 @@
+conference:
+  name: "ICML"
+  year: 2023
+  venue_id: "ICML.cc/2023/Conference"
+  selections:
+    oral: "ICML 2023 OralPoster"
+    poster: "ICML 2023 Poster"

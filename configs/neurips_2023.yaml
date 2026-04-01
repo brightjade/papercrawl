@@ -1,0 +1,8 @@
+conference:
+  name: "NeurIPS"
+  year: 2023
+  venue_id: "NeurIPS.cc/2023/Conference"
+  selections:
+    oral: "NeurIPS 2023 oral"
+    spotlight: "NeurIPS 2023 spotlight"
+    poster: "NeurIPS 2023 poster"

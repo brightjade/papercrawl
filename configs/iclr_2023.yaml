@@ -1,0 +1,9 @@
+conference:
+  name: "ICLR"
+  year: 2023
+  venue_id: "ICLR.cc/2023/Conference"
+  api_version: 1
+  selections:
+    oral: "ICLR 2023 notable top 5%"
+    spotlight: "ICLR 2023 notable top 25%"
+    poster: "ICLR 2023 poster"
