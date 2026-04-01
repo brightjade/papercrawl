@@ -1,0 +1,71 @@
+.author-stats {
+  display: flex;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.author-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.stat-label {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.author-conf-section {
+  margin-bottom: 1.5rem;
+}
+
+.author-conf-heading {
+  font-size: 1rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.author-papers {
+  display: flex;
+  flex-direction: column;
+}
+
+.author-paper-row {
+  display: grid;
+  grid-template-columns: 1fr auto 4rem;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.author-paper-title {
+  font-size: 0.93rem;
+  font-weight: 500;
+}
+
+.author-paper-title a {
+  color: var(--text-primary);
+}
+
+.author-paper-title a:hover {
+  color: var(--accent);
+}
+
+.author-paper-citations {
+  text-align: right;
+  font-weight: 700;
+  color: var(--citation-color);
+  font-variant-numeric: tabular-nums;
+}
