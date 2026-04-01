@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: ./run.sh <conference_id> [conference_id ...] [--citations]
+# Usage: ./run.sh <conference_id> [conference_id ...] [--enrich]
 #
 # Examples:
 #   ./run.sh iclr_2025                          # crawl only
-#   ./run.sh iclr_2025 --citations              # crawl + citations
+#   ./run.sh iclr_2025 --enrich                 # crawl + enrich (citations & abstracts)
 #   ./run.sh iclr_2025 neurips_2025 icml_2025   # multiple conferences
-#   ./run.sh iclr_2025 neurips_2025 --citations  # multiple + citations
+#   ./run.sh iclr_2025 neurips_2025 --enrich     # multiple + enrich
 
 conferences=()
-citations=false
+enrich=false
 
 for arg in "$@"; do
-    if [[ "$arg" == "--citations" ]]; then
-        citations=true
+    if [[ "$arg" == "--enrich" ]]; then
+        enrich=true
     else
         conferences+=("$arg")
     fi
 done
 
 if [[ ${#conferences[@]} -eq 0 ]]; then
-    echo "Usage: ./run.sh <conference_id> [conference_id ...] [--citations]"
+    echo "Usage: ./run.sh <conference_id> [conference_id ...] [--enrich]"
     echo ""
     echo "Available conferences:"
     for f in configs/*.yaml; do
@@ -36,11 +36,11 @@ fi
 echo "Crawling: ${conferences[*]}"
 uv run ppr crawl "${conferences[@]}"
 
-if $citations; then
+if $enrich; then
     for conf in "${conferences[@]}"; do
         echo ""
-        echo "Fetching citations: $conf"
-        uv run ppr citations "$conf"
+        echo "Enriching: $conf"
+        uv run ppr enrich "$conf"
     done
 fi
 

@@ -77,20 +77,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_auth_args(crawl_parser)
 
-    # citations
-    cite_parser = subparsers.add_parser(
-        "citations", help="Fetch citation counts (e.g., ppr citations iclr_2025)"
+    # enrich
+    enrich_parser = subparsers.add_parser(
+        "enrich", help="Enrich papers with citation counts and abstracts (e.g., ppr enrich iclr_2025)"
     )
-    cite_parser.add_argument(
+    enrich_parser.add_argument(
         "conference", help="Conference ID (e.g., iclr_2025).",
     )
-    cite_parser.add_argument(
+    enrich_parser.add_argument(
         "--api-key", default=os.environ.get("SEMANTIC_SCHOLAR_API_KEY", ""),
         help="Semantic Scholar API key (optional, increases rate limits).",
     )
-    cite_parser.add_argument(
-        "--concurrency", type=int, default=5,
-        help="Max concurrent requests (default: 5 without key, use 50 with key).",
+    enrich_parser.add_argument(
+        "--concurrency", type=int, default=1,
+        help="Max concurrent requests (default: 1, matching Semantic Scholar rate limit).",
     )
 
     return parser
@@ -143,7 +143,7 @@ def cmd_crawl(args: argparse.Namespace) -> None:
             )
 
 
-def cmd_citations(args: argparse.Namespace) -> None:
+def cmd_enrich(args: argparse.Namespace) -> None:
     input_path = _resolve_input(args.conference)
     if not input_path.exists():
         raise FileNotFoundError(
@@ -162,10 +162,26 @@ def cmd_citations(args: argparse.Namespace) -> None:
     tmp_path = output_dir / ".papers_with_citations.tmp.jsonl"
     final_path = output_dir / "papers_with_citations.jsonl"
 
-    papers = asyncio.run(fetcher.fetch_and_stream(papers, tmp_path))
+    # Resume: load already-enriched papers from tmp file
+    done_papers = []
+    if tmp_path.exists():
+        with open(tmp_path, encoding="utf-8") as f:
+            done_papers = [Paper.from_dict(json.loads(line)) for line in f if line.strip()]
+        done_titles = {p.title for p in done_papers}
+        remaining = [p for p in papers if p.title not in done_titles]
+        logger.info("Resuming: %d already done, %d remaining", len(done_papers), len(remaining))
+    else:
+        remaining = papers
+
+    if remaining:
+        new_papers = asyncio.run(fetcher.fetch_and_stream(remaining, tmp_path, append=bool(done_papers)))
+        all_papers = done_papers + new_papers
+    else:
+        all_papers = done_papers
+        logger.info("All papers already enriched")
 
     sorted_papers = sorted(
-        papers,
+        all_papers,
         key=lambda p: p.citation_count if p.citation_count is not None else -1,
         reverse=True,
     )
@@ -182,7 +198,7 @@ def main() -> None:
 
     commands = {
         "crawl": cmd_crawl,
-        "citations": cmd_citations,
+        "enrich": cmd_enrich,
     }
 
     if args.command in commands:
