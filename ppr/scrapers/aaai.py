@@ -10,7 +10,7 @@ from functools import partial
 import requests
 from bs4 import BeautifulSoup
 
-from models import Paper
+from ppr.models import Paper
 
 logger = logging.getLogger(__name__)
 

@@ -4,8 +4,8 @@ from collections import Counter
 
 import openreview
 
-from config import CrawlConfig
-from models import Paper
+from ppr.config import CrawlConfig
+from ppr.models import Paper
 
 logger = logging.getLogger(__name__)
 

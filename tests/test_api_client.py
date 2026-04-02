@@ -3,9 +3,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from api_client import OpenReviewAPIClient
-from config import CrawlConfig
-from models import Paper
+from ppr.api_client import OpenReviewAPIClient
+from ppr.config import CrawlConfig
+from ppr.models import Paper
 
 
 def make_config():

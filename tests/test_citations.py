@@ -5,8 +5,8 @@ import httpx
 import pytest
 import respx
 
-from citations import CitationFetcher, SEMANTIC_SCHOLAR_URL
-from models import Paper
+from ppr.citations import CitationFetcher, SEMANTIC_SCHOLAR_URL
+from ppr.models import Paper
 
 
 def _match_response(entry: dict, status=200) -> httpx.Response:

@@ -6,7 +6,7 @@ from pathlib import Path
 import httpx
 from tqdm import tqdm
 
-from models import Paper
+from ppr.models import Paper
 
 logger = logging.getLogger(__name__)
 

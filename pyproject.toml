@@ -23,11 +23,10 @@ dev = [
 ]
 
 [project.scripts]
-ppr = "cli:main"
+ppr = "ppr.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["."]
-exclude = ["tests", "configs", "outputs", "images"]
+packages = ["ppr"]
 
 [build-system]
 requires = ["hatchling"]

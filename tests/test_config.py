@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 
-from config import CrawlConfig
+from ppr.config import CrawlConfig
 
 
 class TestCrawlConfig:

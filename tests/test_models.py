@@ -1,6 +1,6 @@
 import json
 
-from models import Paper
+from ppr.models import Paper
 
 
 class TestPaper:

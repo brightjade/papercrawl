@@ -9,18 +9,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from aaai_scraper import SCRAPERS as AAAI_SCRAPERS
-from acl_scraper import SCRAPERS as ACL_SCRAPERS
-from usenix_scraper import SCRAPERS as USENIX_SCRAPERS
-from api_client import OpenReviewAPIClient, create_openreview_client, create_openreview_v1_client
-from citations import CitationFetcher
-from config import CrawlConfig
-from models import Paper
+from ppr.scrapers import SCRAPERS
+from ppr.api_client import OpenReviewAPIClient, create_openreview_client, create_openreview_v1_client
+from ppr.citations import CitationFetcher
+from ppr.config import CrawlConfig
+from ppr.models import Paper
 
-SCRAPERS = {**ACL_SCRAPERS, **AAAI_SCRAPERS, **USENIX_SCRAPERS}
-
-CONFIGS_DIR = Path(__file__).parent / "configs"
-OUTPUTS_DIR = Path(__file__).parent / "outputs"
+CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
+OUTPUTS_DIR = Path(__file__).resolve().parent.parent / "outputs"
 
 logging.basicConfig(
     level=logging.INFO,
