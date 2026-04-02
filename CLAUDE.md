@@ -22,7 +22,7 @@ Conference ID = config filename without `.yaml` (for OpenReview) or key in `SCRA
 - Config: `configs/<id>.yaml` (OpenReview only)
 - Scraper: `ppr.scrapers.SCRAPERS[<id>]` (ACL-family / AAAI / USENIX)
 - Output: `outputs/<id>/papers.jsonl`
-- Enriched: `outputs/<id>/papers_with_citations.jsonl` (sorted by citation count, with abstracts)
+- Enriched: `outputs/<id>/papers_enriched.jsonl` (sorted by citation count, with abstracts)
 
 ## Architecture
 

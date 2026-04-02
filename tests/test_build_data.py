@@ -49,7 +49,7 @@ def sample_outputs(tmp_path):
             "citation_count": 10,
         },
     ]
-    with open(iclr_dir / "papers_with_citations.jsonl", "w") as f:
+    with open(iclr_dir / "papers_enriched.jsonl", "w") as f:
         for p in papers:
             f.write(json.dumps(p) + "\n")
 
