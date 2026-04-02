@@ -1,4 +1,4 @@
-# papercrawl
+# paper-explorer
 
 Retrieve accepted paper metadata from ML/DL/NLP/Security conferences. Uses the OpenReview API for ML conferences and web scraping for ACL-family and USENIX conferences.
 

@@ -10,7 +10,7 @@ export default function App() {
   const { dark, toggle } = useDarkMode();
 
   return (
-    <BrowserRouter basename="/papercrawl">
+    <BrowserRouter basename="/paper-explorer">
       <div className="app-layout">
         <header className="app-header">
           <h1>
