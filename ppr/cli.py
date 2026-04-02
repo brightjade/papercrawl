@@ -155,8 +155,8 @@ def cmd_enrich(args: argparse.Namespace) -> None:
     fetcher = CitationFetcher(api_key=api_key, max_concurrency=args.concurrency)
 
     output_dir = input_path.parent
-    tmp_path = output_dir / ".papers_with_citations.tmp.jsonl"
-    final_path = output_dir / "papers_with_citations.jsonl"
+    tmp_path = output_dir / ".papers_enriched.tmp.jsonl"
+    final_path = output_dir / "papers_enriched.jsonl"
 
     # Resume: load already-enriched papers from tmp file
     done_papers = []

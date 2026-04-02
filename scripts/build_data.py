@@ -28,7 +28,7 @@ def parse_conference_id(conf_id: str) -> tuple[str, int]:
 
 def load_papers(conf_dir: Path) -> list[dict]:
     """Load papers from a conference directory, preferring enriched data."""
-    enriched = conf_dir / "papers_with_citations.jsonl"
+    enriched = conf_dir / "papers_enriched.jsonl"
     plain = conf_dir / "papers.jsonl"
     source = enriched if enriched.exists() else plain
     if not source.exists():

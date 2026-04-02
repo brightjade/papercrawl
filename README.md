@@ -73,7 +73,7 @@ All output goes to `outputs/<conference_id>/`:
 ```
 outputs/iclr_2025/
   papers.jsonl                    # all accepted papers
-  papers_with_citations.jsonl     # sorted by citation count, with abstracts (after running enrich)
+  papers_enriched.jsonl            # enriched with Semantic Scholar metadata (after running enrich)
 ```
 
 OpenReview papers include title, authors, selection, keywords, abstract, PDF link, and forum ID. Web-scraped papers include title, authors, and selection. The `enrich` command adds citation counts and abstracts (from Semantic Scholar) to all papers. Existing abstracts (e.g., from OpenReview) are preserved. Enrichment is resumable — if interrupted, re-running `ppr enrich` picks up where it left off.
