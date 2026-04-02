@@ -19,6 +19,7 @@ class Paper:
     fields_of_study: list[str] = field(default_factory=list)
     open_access_pdf: str = ""
     external_ids: dict = field(default_factory=dict)
+    match_status: str = ""
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -45,4 +46,5 @@ class Paper:
             fields_of_study=data.get("fields_of_study", []),
             open_access_pdf=data.get("open_access_pdf", ""),
             external_ids=data.get("external_ids", {}),
+            match_status=data.get("match_status", ""),
         )
