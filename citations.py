@@ -10,7 +10,7 @@ from models import Paper
 
 logger = logging.getLogger(__name__)
 
-SEMANTIC_SCHOLAR_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+SEMANTIC_SCHOLAR_URL = "https://api.semanticscholar.org/graph/v1/paper/search/match"
 
 
 class CitationFetcher:
@@ -28,12 +28,17 @@ class CitationFetcher:
             await asyncio.sleep(1.0 - elapsed)
         self._last_request_time = asyncio.get_event_loop().time()
 
+    @staticmethod
+    def _normalize_title(title: str) -> str:
+        """Normalize title for comparison: lowercase, collapse whitespace."""
+        return " ".join(title.lower().split())
+
     async def _fetch_one(self, client: httpx.AsyncClient, title: str) -> dict:
-        """Fetch metadata for a single paper. Returns a dict of enrichment fields."""
+        """Fetch metadata for a single paper via the match endpoint.
+        Returns a dict of enrichment fields plus 'match_status'."""
         params = {
             "query": title,
             "fields": "title,citationCount,abstract,influentialCitationCount,referenceCount,tldr,publicationDate,fieldsOfStudy,openAccessPdf,externalIds",
-            "limit": 1,
         }
         max_retries = 5
 
@@ -49,9 +54,25 @@ class CitationFetcher:
                         await asyncio.sleep(wait)
                         continue
 
+                    if response.status_code == 404:
+                        logger.warning("No match found for: %s", title)
+                        return {"match_status": "not_found"}
+
                     response.raise_for_status()
                     data = response.json()
                     entry = data["data"][0]
+
+                    # Validate title similarity
+                    matched_title = entry.get("title", "")
+                    query_norm = self._normalize_title(title)
+                    matched_norm = self._normalize_title(matched_title)
+                    if query_norm == matched_norm:
+                        match_status = "matched"
+                    else:
+                        match_status = "mismatch"
+                        logger.warning(
+                            "Title mismatch for '%s' — got '%s'", title, matched_title
+                        )
 
                     # Extract tldr text from nested object
                     tldr_obj = entry.get("tldr")
@@ -62,6 +83,7 @@ class CitationFetcher:
                     pdf_url = pdf_obj.get("url", "") if isinstance(pdf_obj, dict) else ""
 
                     return {
+                        "match_status": match_status,
                         "citation_count": entry.get("citationCount"),
                         "abstract": entry.get("abstract"),
                         "influential_citation_count": entry.get("influentialCitationCount"),
@@ -75,12 +97,12 @@ class CitationFetcher:
 
                 except httpx.HTTPStatusError:
                     await asyncio.sleep(2 ** attempt)
-                except (KeyError, IndexError, TypeError):
-                    return {}
+                except (KeyError, TypeError):
+                    return {"match_status": "not_found"}
                 except httpx.RequestError:
                     await asyncio.sleep(2 ** attempt)
 
-        return {}
+        return {"match_status": "not_found"}
 
     async def fetch_and_stream(
         self,
@@ -96,7 +118,8 @@ class CitationFetcher:
 
         async def _process(idx: int, paper: Paper, client: httpx.AsyncClient, f):
             enrichment = await self._fetch_one(client, paper.title)
-            if enrichment:
+            paper.match_status = enrichment.get("match_status", "not_found")
+            if enrichment.get("citation_count") is not None:
                 paper.citation_count = enrichment.get("citation_count")
                 paper.influential_citation_count = enrichment.get("influential_citation_count")
                 paper.reference_count = enrichment.get("reference_count")
