@@ -37,11 +37,9 @@ echo "Crawling: ${conferences[*]}"
 uv run ppr crawl "${conferences[@]}"
 
 if $enrich; then
-    for conf in "${conferences[@]}"; do
-        echo ""
-        echo "Enriching: $conf"
-        uv run ppr enrich "$conf"
-    done
+    echo ""
+    echo "Enriching: ${conferences[*]}"
+    uv run ppr enrich "${conferences[@]}"
 fi
 
 echo ""
