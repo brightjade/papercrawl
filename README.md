@@ -30,6 +30,9 @@ uv run ppr enrich iclr_2025
 
 # Pipeline: crawl + enrich for multiple conferences
 ./run.sh iclr_2025 neurips_2025 emnlp_2025 --enrich
+
+# Build static JSON for web app
+./build.sh
 ```
 
 ## Available conferences

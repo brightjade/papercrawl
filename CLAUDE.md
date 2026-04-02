@@ -10,6 +10,7 @@ uv run ppr crawl iclr_2025                     # Crawl one conference
 uv run ppr crawl iclr_2025 neurips_2025        # Crawl multiple (one OpenReview login)
 uv run ppr enrich iclr_2025                    # Fetch citations & abstracts
 ./run.sh iclr_2025 neurips_2025 --enrich       # Pipeline script
+./build.sh                                     # Build static JSON for web app
 uv run pytest tests/                           # Run all tests
 uv run pytest tests/test_models.py::TestPaper::test_to_dict_full  # Single test
 ```
