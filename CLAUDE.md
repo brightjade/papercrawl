@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 uv sync                                        # Install dependencies
 uv run ppr crawl iclr_2025                     # Crawl one conference
 uv run ppr crawl iclr_2025 neurips_2025        # Crawl multiple (one OpenReview login)
-uv run ppr enrich iclr_2025                    # Fetch citations & abstracts
+uv run ppr enrich iclr_2025 neurips_2025        # Enrich with Semantic Scholar metadata
 ./run.sh iclr_2025 neurips_2025 --enrich       # Pipeline script
 ./build.sh                                     # Build static JSON for web app
 uv run pytest tests/                           # Run all tests

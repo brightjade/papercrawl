@@ -34,6 +34,11 @@ def _resolve_input(conf_id: str) -> Path:
     return OUTPUTS_DIR / conf_id / "papers.jsonl"
 
 
+def _read_papers_jsonl(path: Path) -> list[Paper]:
+    with open(path, encoding="utf-8") as f:
+        return [Paper.from_dict(json.loads(line)) for line in f if line.strip()]
+
+
 def _save_papers(papers: list[Paper], conf_id: str) -> Path:
     save_path = OUTPUTS_DIR / conf_id / "papers.jsonl"
     save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -75,10 +80,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     # enrich
     enrich_parser = subparsers.add_parser(
-        "enrich", help="Enrich papers with citation counts and abstracts (e.g., ppr enrich iclr_2025)"
+        "enrich", help="Enrich papers with Semantic Scholar metadata (e.g., ppr enrich iclr_2025 neurips_2025)"
     )
     enrich_parser.add_argument(
-        "conference", help="Conference ID (e.g., iclr_2025).",
+        "conferences", nargs="+",
+        help="Conference IDs (e.g., iclr_2025 neurips_2025).",
     )
     enrich_parser.add_argument(
         "--api-key", default=os.environ.get("SEMANTIC_SCHOLAR_API_KEY", ""),
@@ -139,20 +145,16 @@ def cmd_crawl(args: argparse.Namespace) -> None:
             )
 
 
-def cmd_enrich(args: argparse.Namespace) -> None:
-    input_path = _resolve_input(args.conference)
+def _enrich_one(conf_id: str, fetcher: CitationFetcher) -> None:
+    input_path = _resolve_input(conf_id)
     if not input_path.exists():
         raise FileNotFoundError(
-            f"No papers found at {input_path}. Run 'ppr crawl {args.conference}' first."
+            f"No papers found at {input_path}. Run 'ppr crawl {conf_id}' first."
         )
 
-    with open(input_path, encoding="utf-8") as f:
-        papers = [Paper.from_dict(json.loads(line)) for line in f if line.strip()]
+    papers = _read_papers_jsonl(input_path)
 
     logger.info("Loaded %d papers from %s", len(papers), input_path)
-
-    api_key = args.api_key or None
-    fetcher = CitationFetcher(api_key=api_key, max_concurrency=args.concurrency)
 
     output_dir = input_path.parent
     tmp_path = output_dir / ".papers_enriched.tmp.jsonl"
@@ -161,8 +163,7 @@ def cmd_enrich(args: argparse.Namespace) -> None:
     # Resume: load already-enriched papers from tmp file
     done_papers = []
     if tmp_path.exists():
-        with open(tmp_path, encoding="utf-8") as f:
-            done_papers = [Paper.from_dict(json.loads(line)) for line in f if line.strip()]
+        done_papers = _read_papers_jsonl(tmp_path)
         done_titles = {p.title for p in done_papers}
         remaining = [p for p in papers if p.title not in done_titles]
         logger.info("Resuming: %d already done, %d remaining", len(done_papers), len(remaining))
@@ -186,6 +187,15 @@ def cmd_enrich(args: argparse.Namespace) -> None:
             f.write(paper.to_json() + "\n")
     tmp_path.unlink()
     logger.info("Saved %d papers (sorted by citations) to %s", len(sorted_papers), final_path)
+
+
+def cmd_enrich(args: argparse.Namespace) -> None:
+    api_key = args.api_key or None
+    fetcher = CitationFetcher(api_key=api_key, max_concurrency=args.concurrency)
+
+    for conf_id in args.conferences:
+        logger.info("Enriching %s...", conf_id)
+        _enrich_one(conf_id, fetcher)
 
 
 def main() -> None:
