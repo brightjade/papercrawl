@@ -40,6 +40,7 @@ def _fetch_dblp(key: str, number: str | None = None) -> list[dict]:
     """
     all_hits: list[dict] = []
     offset = 0
+    total = 0
 
     while True:
         params = {
