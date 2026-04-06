@@ -49,11 +49,11 @@ uv run ppr enrich iclr_2025
 | `icml_2023` | OpenReview | oral, poster |
 | `icml_2024` | OpenReview | oral, spotlight, poster |
 | `icml_2025` | OpenReview | oral, spotlight, poster |
-| `colm_2024` | OpenReview | all |
-| `colm_2025` | OpenReview | all |
-| `aaai_2023` | Web scrape | accepted |
-| `aaai_2024` | Web scrape | accepted |
-| `aaai_2025` | Web scrape | accepted |
+| `colm_2024` | OpenReview | main |
+| `colm_2025` | OpenReview | main |
+| `aaai_2023` | Web scrape | main |
+| `aaai_2024` | Web scrape | main |
+| `aaai_2025` | Web scrape | main |
 | `emnlp_2023` | Web scrape | main, findings, industry |
 | `emnlp_2024` | Web scrape | main, findings, industry |
 | `emnlp_2025` | Web scrape | main, findings, industry |
@@ -62,9 +62,9 @@ uv run ppr enrich iclr_2025
 | `acl_2025` | Web scrape | main, findings, industry |
 | `naacl_2024` | Web scrape | main, findings, industry |
 | `naacl_2025` | Web scrape | main, findings, industry |
-| `usenix_security_2023` | Web scrape | accepted |
-| `usenix_security_2024` | Web scrape | accepted |
-| `usenix_security_2025` | Web scrape | accepted |
+| `usenix_security_2023` | Web scrape | main |
+| `usenix_security_2024` | Web scrape | main |
+| `usenix_security_2025` | Web scrape | main |
 | `icse_2023` | DBLP API | main |
 | `icse_2024` | DBLP API | main |
 | `icse_2025` | DBLP API | main |
