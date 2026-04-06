@@ -16,7 +16,7 @@ SEMANTIC_SCHOLAR_URL = "https://api.semanticscholar.org/graph/v1/paper/search/ma
 class CitationFetcher:
     def __init__(self, api_key: str | None = None, max_concurrency: int = 1):
         self.api_key = api_key
-        self.semaphore = asyncio.Semaphore(max_concurrency)
+        self._max_concurrency = max_concurrency
         self.headers = {"x-api-key": api_key} if api_key else {}
         self._last_request_time: float = 0.0
 
@@ -33,7 +33,7 @@ class CitationFetcher:
         """Normalize title for comparison: lowercase, collapse whitespace."""
         return " ".join(title.lower().split())
 
-    async def _fetch_one(self, client: httpx.AsyncClient, title: str) -> dict:
+    async def _fetch_one(self, client: httpx.AsyncClient, title: str, semaphore: asyncio.Semaphore | None = None) -> dict:
         """Fetch metadata for a single paper via the match endpoint.
         Returns a dict of enrichment fields plus 'match_status'."""
         params = {
@@ -42,7 +42,8 @@ class CitationFetcher:
         }
         max_retries = 5
 
-        async with self.semaphore:
+        sem = semaphore or asyncio.Semaphore(self._max_concurrency)
+        async with sem:
             for attempt in range(max_retries):
                 await self._rate_limit()
                 try:
@@ -117,7 +118,7 @@ class CitationFetcher:
         progress = tqdm(total=total, desc="Enriching papers", unit="paper")
 
         async def _process(idx: int, paper: Paper, client: httpx.AsyncClient, f):
-            enrichment = await self._fetch_one(client, paper.title)
+            enrichment = await self._fetch_one(client, paper.title, semaphore)
             paper.match_status = enrichment.get("match_status", "not_found")
             if enrichment.get("citation_count") is not None:
                 paper.citation_count = enrichment.get("citation_count")
@@ -139,6 +140,7 @@ class CitationFetcher:
             found = paper.citation_count if paper.citation_count is not None else "?"
             progress.set_postfix_str(f"last: {found} cites")
 
+        semaphore = asyncio.Semaphore(self._max_concurrency)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         mode = "a" if append else "w"
         with open(output_path, mode, encoding="utf-8") as f:
@@ -154,6 +156,7 @@ class CitationFetcher:
 
     async def fetch_all(self, titles: list[str]) -> list[dict]:
         """Simple batch fetch without streaming."""
+        semaphore = asyncio.Semaphore(self._max_concurrency)
         async with httpx.AsyncClient(timeout=30.0) as client:
-            tasks = [self._fetch_one(client, t) for t in titles]
+            tasks = [self._fetch_one(client, t, semaphore) for t in titles]
             return await asyncio.gather(*tasks)
