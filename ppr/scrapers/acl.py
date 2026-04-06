@@ -35,6 +35,7 @@ def _parse_paper_list(soup: BeautifulSoup, selection: str) -> list[Paper]:
                 authors_text = ps[1].get_text(strip=True)
             else:
                 authors_text = ""
+        authors_text = authors_text.replace(" and ", ", ")
         authors = [a.strip() for a in authors_text.split(",") if a.strip()]
         if not authors:
             continue
@@ -120,6 +121,7 @@ def _parse_paper_paragraphs(soup: BeautifulSoup, selection: str) -> list[Paper]:
         else:
             full_text = p.get_text()
             authors_text = full_text[len(title):].strip()
+        authors_text = authors_text.replace(" and ", ", ")
         authors = [a.strip() for a in authors_text.split(",") if a.strip()]
         papers.append(Paper(
             title=title,
@@ -227,12 +229,21 @@ def scrape_naacl_2024() -> list[Paper]:
     return papers
 
 
+def scrape_coling_2025() -> list[Paper]:
+    return _scrape_separate_pages("https://coling2025.org", {
+        "main": "/program/main_conference_papers/",
+        "industry": "/program/industry_track_papers/",
+        "demo": "/program/demo_papers/",
+    })
+
+
 SCRAPERS = {
     "emnlp_2023": scrape_emnlp_2023,
     "acl_2023": scrape_acl_2023,
     "emnlp_2024": scrape_emnlp_2024,
     "acl_2024": scrape_acl_2024,
     "naacl_2024": scrape_naacl_2024,
+    "coling_2025": scrape_coling_2025,
     "emnlp_2025": scrape_emnlp_2025,
     "acl_2025": scrape_acl_2025,
     "naacl_2025": scrape_naacl_2025,
