@@ -95,6 +95,39 @@ class TestParseConferenceId:
     def test_issta(self):
         assert parse_conference_id("issta_2024") == ("ISSTA", 2024)
 
+    def test_cvpr(self):
+        assert parse_conference_id("cvpr_2025") == ("CVPR", 2025)
+
+    def test_iccv(self):
+        assert parse_conference_id("iccv_2023") == ("ICCV", 2023)
+
+    def test_eccv(self):
+        assert parse_conference_id("eccv_2024") == ("ECCV", 2024)
+
+    def test_wacv(self):
+        assert parse_conference_id("wacv_2025") == ("WACV", 2025)
+
+    def test_icra(self):
+        assert parse_conference_id("icra_2024") == ("ICRA", 2024)
+
+    def test_iros(self):
+        assert parse_conference_id("iros_2024") == ("IROS", 2024)
+
+    def test_rss(self):
+        assert parse_conference_id("rss_2024") == ("RSS", 2024)
+
+    def test_ijcai(self):
+        assert parse_conference_id("ijcai_2024") == ("IJCAI", 2024)
+
+    def test_corl(self):
+        assert parse_conference_id("corl_2024") == ("CoRL", 2024)
+
+    def test_eacl(self):
+        assert parse_conference_id("eacl_2024") == ("EACL", 2024)
+
+    def test_coling(self):
+        assert parse_conference_id("coling_2024") == ("COLING", 2024)
+
 
 class TestLoadPapers:
     def test_prefers_enriched(self, sample_outputs):
