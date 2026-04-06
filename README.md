@@ -1,6 +1,6 @@
 # paper-explorer
 
-Retrieve accepted paper metadata from ML/DL/NLP/Security conferences. Uses the OpenReview API for ML conferences and web scraping for ACL-family and USENIX conferences.
+Retrieve accepted paper metadata from ML/DL/NLP/Security/SE conferences. Uses the OpenReview API for ML conferences, web scraping for ACL-family/AAAI/USENIX conferences, and the DBLP API for software engineering conferences.
 
 ## Install
 
@@ -65,6 +65,18 @@ uv run ppr enrich iclr_2025
 | `usenix_security_2023` | Web scrape | accepted |
 | `usenix_security_2024` | Web scrape | accepted |
 | `usenix_security_2025` | Web scrape | accepted |
+| `icse_2023` | DBLP API | main |
+| `icse_2024` | DBLP API | main |
+| `icse_2025` | DBLP API | main |
+| `fse_2023` | DBLP API | main |
+| `fse_2024` | DBLP API | main |
+| `fse_2025` | DBLP API | main |
+| `ase_2023` | DBLP API | main |
+| `ase_2024` | DBLP API | main |
+| `ase_2025` | DBLP API | main |
+| `issta_2023` | DBLP API | main |
+| `issta_2024` | DBLP API | main |
+| `issta_2025` | DBLP API | main |
 
 ## Output
 
@@ -76,7 +88,7 @@ outputs/iclr_2025/
   papers_enriched.jsonl            # enriched with Semantic Scholar metadata (after running enrich)
 ```
 
-OpenReview papers include title, authors, selection, keywords, abstract, PDF link, and forum ID. Web-scraped papers include title, authors, and selection. The `enrich` command adds citation counts and abstracts (from Semantic Scholar) to all papers. Existing abstracts (e.g., from OpenReview) are preserved. Enrichment is resumable — if interrupted, re-running `ppr enrich` picks up where it left off.
+OpenReview papers include title, authors, selection, keywords, abstract, PDF link, and forum ID. Web-scraped papers include title, authors, and selection. DBLP papers include title, authors, and DOI link. The `enrich` command adds citation counts and abstracts (from Semantic Scholar) to all papers. Existing abstracts (e.g., from OpenReview) are preserved. Enrichment is resumable — if interrupted, re-running `ppr enrich` picks up where it left off.
 
 ## Testing
 
