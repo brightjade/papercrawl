@@ -107,6 +107,10 @@ def _scrape_dblp(conf_id: str) -> list[Paper]:
 
     papers = []
     for hit in hits:
+        # Skip proceedings/editorship entries (the conference record itself)
+        if hit.get("type") == "Editorship":
+            continue
+
         ee = hit.get("ee")
         if not ee:
             continue
