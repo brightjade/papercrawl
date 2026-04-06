@@ -1,3 +1,21 @@
+.download-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.download-link:hover {
+  text-decoration: underline;
+}
+
+.download-icon {
+  width: 0.9em;
+  height: 0.9em;
+}
+
 .conference-controls {
   display: flex;
   gap: 1rem;

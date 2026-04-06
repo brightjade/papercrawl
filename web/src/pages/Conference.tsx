@@ -57,6 +57,19 @@ export function Conference() {
       <p className="page-subtitle">
         {papers.length.toLocaleString()} papers
         {filtered.length !== papers.length && ` · ${filtered.length.toLocaleString()} shown`}
+        {" · "}
+        <a
+          className="download-link"
+          href={`${import.meta.env.BASE_URL}data/${id}.jsonl`}
+          download={`${id}.jsonl`}
+          title="Download paper data (.jsonl)"
+        >
+          <svg className="download-icon" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 12l-4-4h2.5V3h3v5H12L8 12z" />
+            <path d="M3 13h10v1H3z" />
+          </svg>
+          Download
+        </a>
       </p>
 
       <div className="conference-controls">
