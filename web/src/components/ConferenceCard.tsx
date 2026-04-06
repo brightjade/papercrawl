@@ -9,8 +9,13 @@ export function ConferenceCard({ conf }: { conf: ConferenceMeta }) {
         <span className="conference-venue">{conf.venue}</span>
         <span className="conference-year">{conf.year}</span>
       </div>
-      <div className="conference-count">
-        {conf.paper_count.toLocaleString()} papers
+      <div className="conference-stats">
+        <span>{conf.paper_count.toLocaleString()} papers</span>
+        {conf.has_citations && (
+          <span className="conference-citations">
+            {conf.total_citations.toLocaleString()} citations
+          </span>
+        )}
       </div>
       {conf.top_papers.length > 0 && (
         <ol className="conference-top-papers">

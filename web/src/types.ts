@@ -22,6 +22,7 @@ export interface ConferenceMeta {
   year: number;
   paper_count: number;
   has_citations: boolean;
+  total_citations: number;
   tracks: string[];
   top_papers: {
     title: string;
@@ -37,6 +38,6 @@ export interface AuthorSummary {
 }
 
 export interface TrendsData {
-  keywords_by_year: Record<string, Record<string, number>>;
   venue_counts_by_year: Record<string, Record<string, number>>;
+  citation_counts_by_year: Record<string, Record<string, number>>;
 }

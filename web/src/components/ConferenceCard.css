@@ -34,10 +34,17 @@
   font-weight: 500;
 }
 
-.conference-count {
+.conference-stats {
+  display: flex;
+  gap: 0.75rem;
   font-size: 0.9rem;
   color: var(--text-secondary);
   margin-bottom: 0.75rem;
+}
+
+.conference-citations {
+  color: var(--citation-color);
+  font-weight: 600;
 }
 
 .conference-top-papers {
