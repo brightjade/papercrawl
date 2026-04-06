@@ -83,6 +83,18 @@ class TestParseConferenceId:
     def test_colm(self):
         assert parse_conference_id("colm_2024") == ("COLM", 2024)
 
+    def test_icse(self):
+        assert parse_conference_id("icse_2024") == ("ICSE", 2024)
+
+    def test_fse(self):
+        assert parse_conference_id("fse_2024") == ("FSE", 2024)
+
+    def test_ase(self):
+        assert parse_conference_id("ase_2024") == ("ASE", 2024)
+
+    def test_issta(self):
+        assert parse_conference_id("issta_2024") == ("ISSTA", 2024)
+
 
 class TestLoadPapers:
     def test_prefers_enriched(self, sample_outputs):

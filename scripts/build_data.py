@@ -15,6 +15,10 @@ VENUE_NAMES = {
     "naacl": "NAACL",
     "aaai": "AAAI",
     "usenix_security": "USENIX Security",
+    "icse": "ICSE",
+    "fse": "FSE",
+    "ase": "ASE",
+    "issta": "ISSTA",
 }
 
 
