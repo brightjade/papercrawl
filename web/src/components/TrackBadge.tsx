@@ -6,8 +6,6 @@ const TRACK_COLORS: Record<string, string> = {
   poster: "#0369a1",
   main: "#1a6b5a",
   findings: "#6b7280",
-  accepted: "#1a6b5a",
-  all: "#6b7280",
 };
 
 export function TrackBadge({ track }: { track: string }) {

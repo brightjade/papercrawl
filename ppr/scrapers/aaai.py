@@ -54,7 +54,7 @@ def _scrape_aaai_issue(issue_id: int) -> list[Paper]:
             title=title,
             link=link,
             authors=authors,
-            selection="accepted",
+            selection="main",
         ))
     return papers
 

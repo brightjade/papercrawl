@@ -3,4 +3,4 @@ conference:
   year: 2024
   venue_id: "colmweb.org/COLM/2024/Conference"
   selections:
-    all: "COLM"
+    main: "COLM"

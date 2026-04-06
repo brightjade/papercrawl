@@ -79,7 +79,7 @@ def _scrape_usenix(conf_id: str) -> list[Paper]:
             title=title,
             link=href,
             authors=authors,
-            selection="accepted",
+            selection="main",
         ))
 
     logger.info("Found %d papers for %s", len(papers), conf_id)
