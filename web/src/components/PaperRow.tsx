@@ -58,14 +58,14 @@ export function PaperRow({ paper, rank }: { paper: Paper; rank: number }) {
             )}
           </div>
 
-          {(paper.keywords.length > 0 || (paper.fields_of_study && paper.fields_of_study.length > 0)) && (
+          {((paper.keywords && paper.keywords.length > 0) || (paper.fields_of_study && paper.fields_of_study.length > 0)) && (
             <div className="paper-keywords">
               {paper.fields_of_study?.map((f, i) => (
                 <span key={`fos-${i}`} className="field-tag">
                   {f}
                 </span>
               ))}
-              {paper.keywords.map((kw, i) => (
+              {paper.keywords?.map((kw, i) => (
                 <span key={i} className="keyword-tag">
                   {kw}
                 </span>
