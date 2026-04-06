@@ -17,10 +17,10 @@ uv run pytest tests/test_models.py::TestPaper::test_to_dict_full  # Single test
 
 ## Convention
 
-Conference ID = config filename without `.yaml` (for OpenReview) or key in `SCRAPERS` dict (for ACL-family / AAAI / USENIX). Everything derives from it:
+Conference ID = config filename without `.yaml` (for OpenReview) or key in `SCRAPERS` dict (for ACL-family / AAAI / USENIX / DBLP). Everything derives from it:
 
 - Config: `configs/<id>.yaml` (OpenReview only)
-- Scraper: `ppr.scrapers.SCRAPERS[<id>]` (ACL-family / AAAI / USENIX)
+- Scraper: `ppr.scrapers.SCRAPERS[<id>]` (ACL-family / AAAI / USENIX / DBLP)
 - Output: `outputs/<id>/papers.jsonl`
 - Enriched: `outputs/<id>/papers_enriched.jsonl` (sorted by citation count, with abstracts)
 
@@ -32,6 +32,7 @@ Multiple data sources, one output format:
 - **ACL-family conferences** (EMNLP, ACL, NAACL): conference ID -> `ppr.scrapers.acl.SCRAPERS` -> scrape `<li><strong>Title</strong><em>Authors</em></li>` from conference website -> `Paper` with `selection` tag
 - **AAAI**: conference ID -> `ppr.scrapers.aaai.SCRAPERS` -> scrape OJS issue pages from `ojs.aaai.org` -> `Paper` with `selection` tag
 - **USENIX Security**: conference ID -> `ppr.scrapers.usenix.SCRAPERS` -> scrape `article.node-paper` from `technical-sessions` page -> `Paper` with `selection` tag. Requires browser User-Agent header.
+- **SE conferences** (ICSE, FSE, ASE, ISSTA): conference ID -> `ppr.scrapers.dblp.SCRAPERS` -> DBLP JSON search API (`toc:` query) -> `Paper` with `selection` tag. No auth needed. FSE 2024+ and ISSTA 2025+ use PACMSE journal keys with `number` field filtering.
 
 All produce JSONL. Enrichment (citations + abstracts via Semantic Scholar) works the same for all sources. OpenReview abstracts are preserved; Semantic Scholar abstracts fill in papers that lack them.
 
@@ -45,6 +46,7 @@ All source code lives in the `ppr/` package:
   - `acl.py` -- ACL-family (EMNLP, ACL, NAACL). Handles both separate-page and single-page layouts. Skips entries without authors (filters footer noise).
   - `aaai.py` -- AAAI proceedings from `ojs.aaai.org`. Scrapes multiple OJS issue pages per year (technical tracks + special tracks).
   - `usenix.py` -- USENIX Security. Scrapes `technical-sessions` page. Parses `Name1 and Name2,Affiliation;Name3,Affiliation` author format. Needs browser UA to avoid 403.
+  - `dblp.py` -- SE conferences (ICSE, FSE, ASE, ISSTA) via DBLP JSON API. Config dict maps conference IDs to `toc:` keys. Handles PACMSE journal volumes (shared by FSE/ISSTA) via `number` field filtering. Strips DBLP author disambiguation suffixes and HTML entities.
 - `ppr/citations.py` -- Async enrichment (citations + abstracts) via Semantic Scholar with `httpx` + `asyncio.Semaphore`. Rate-limited to 1 req/sec. Streams results to a temp file with tqdm progress bar, then writes sorted final file. Preserves existing abstracts (e.g., from OpenReview). Supports resume: if tmp file exists, skips already-enriched papers.
 - `ppr/models.py` -- `Paper` dataclass with `selection` field. `to_dict()` excludes `None` and empty-string fields.
 - `ppr/config.py` -- `CrawlConfig` from YAML. `conference_id` derived from filename, output path derived from that.
