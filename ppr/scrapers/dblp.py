@@ -97,6 +97,19 @@ DBLP_CONFERENCES = {
     "issta_2023": {"key": "db/conf/issta/issta2023.bht"},
     "issta_2024": {"key": "db/conf/issta/issta2024.bht"},
     "issta_2025": {"key": "db/journals/pacmse/pacmse2.bht", "number": "ISSTA"},
+    # Robotics
+    "icra_2023": {"key": "db/conf/icra/icra2023.bht"},
+    "icra_2024": {"key": "db/conf/icra/icra2024.bht"},
+    "icra_2025": {"key": "db/conf/icra/icra2025.bht"},
+    "iros_2023": {"key": "db/conf/iros/iros2023.bht"},
+    "iros_2024": {"key": "db/conf/iros/iros2024.bht"},
+    "iros_2025": {"key": "db/conf/iros/iros2025.bht"},
+    "rss_2023": {"key": "db/conf/rss/rss2023.bht"},
+    "rss_2024": {"key": "db/conf/rss/rss2024.bht"},
+    # AI
+    "ijcai_2023": {"key": "db/conf/ijcai/ijcai2023.bht"},
+    "ijcai_2024": {"key": "db/conf/ijcai/ijcai2024.bht"},
+    "ijcai_2025": {"key": "db/conf/ijcai/ijcai2025.bht"},
 }
 
 
