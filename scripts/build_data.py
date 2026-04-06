@@ -20,6 +20,17 @@ VENUE_NAMES = {
     "fse": "FSE",
     "ase": "ASE",
     "issta": "ISSTA",
+    "cvpr": "CVPR",
+    "iccv": "ICCV",
+    "eccv": "ECCV",
+    "wacv": "WACV",
+    "icra": "ICRA",
+    "iros": "IROS",
+    "rss": "RSS",
+    "ijcai": "IJCAI",
+    "corl": "CoRL",
+    "eacl": "EACL",
+    "coling": "COLING",
 }
 
 
