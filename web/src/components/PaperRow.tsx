@@ -14,7 +14,7 @@ export function PaperRow({ paper, rank }: { paper: Paper; rank: number }) {
         <div className="paper-info">
           <div className="paper-title">{paper.title}</div>
           <div className="paper-authors">
-            {paper.authors.map((a, i) => (
+            {(paper.authors ?? []).map((a, i) => (
               <span key={i}>
                 {i > 0 && ", "}
                 <Link
