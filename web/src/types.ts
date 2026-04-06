@@ -2,7 +2,7 @@ export interface Paper {
   title: string;
   authors: string[];
   selection: string;
-  keywords: string[];
+  keywords?: string[];
   abstract?: string;
   link?: string;
   forum_id?: string;

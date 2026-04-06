@@ -32,7 +32,7 @@ export function Conference() {
         (p) =>
           p.title.toLowerCase().includes(q) ||
           p.authors.some((a) => a.toLowerCase().includes(q)) ||
-          p.keywords.some((k) => k.toLowerCase().includes(q))
+          (p.keywords ?? []).some((k) => k.toLowerCase().includes(q))
       );
     }
 
