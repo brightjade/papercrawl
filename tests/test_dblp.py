@@ -237,6 +237,12 @@ class TestScrapersDict:
             "fse_2023", "fse_2024", "fse_2025",
             "ase_2023", "ase_2024", "ase_2025",
             "issta_2023", "issta_2024", "issta_2025",
+            # Robotics
+            "icra_2023", "icra_2024", "icra_2025",
+            "iros_2023", "iros_2024", "iros_2025",
+            "rss_2023", "rss_2024",
+            # AI
+            "ijcai_2023", "ijcai_2024", "ijcai_2025",
         }
         assert expected == set(DBLP_CONFERENCES.keys())
 
