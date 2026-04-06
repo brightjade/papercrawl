@@ -1,4 +1,12 @@
-from ppr.scrapers.dblp import _clean_author
+from unittest.mock import MagicMock, patch
+
+from ppr.scrapers.dblp import (
+    DBLP_CONFERENCES,
+    SCRAPERS,
+    _clean_author,
+    _fetch_dblp,
+    _scrape_dblp,
+)
 
 
 class TestCleanAuthor:
@@ -17,10 +25,6 @@ class TestCleanAuthor:
 
     def test_empty_string(self):
         assert _clean_author("") == ""
-
-
-from unittest.mock import patch, MagicMock
-from ppr.scrapers.dblp import _fetch_dblp
 
 
 def _make_dblp_response(hits: list[dict], total: int) -> dict:
@@ -122,9 +126,6 @@ class TestFetchDblp:
 
         result = _fetch_dblp("db/conf/icse/icse2099.bht")
         assert result == []
-
-
-from ppr.scrapers.dblp import _scrape_dblp, SCRAPERS, DBLP_CONFERENCES
 
 
 class TestScrapeDblp:
