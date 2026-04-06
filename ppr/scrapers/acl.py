@@ -14,6 +14,8 @@ from ppr.models import Paper
 
 logger = logging.getLogger(__name__)
 
+ANTHOLOGY_BASE_URL = "https://aclanthology.org"
+
 
 def _parse_paper_list(soup: BeautifulSoup, selection: str) -> list[Paper]:
     """Parse papers from <li> elements containing title and authors.
@@ -229,6 +231,78 @@ def scrape_naacl_2024() -> list[Paper]:
     return papers
 
 
+def _parse_anthology(html: str, selection: str) -> list[Paper]:
+    """Parse papers from ACL Anthology volume pages.
+
+    Expected structure:
+    <div class="d-sm-flex ..."><span class="d-block">
+    <strong><a href="/VOLUME.N/">Title</a></strong><br/>
+    <a href="/people/...">Author</a> | <a href="/people/...">Author2</a>
+    </span></div>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    papers = []
+
+    for div in soup.find_all(class_="d-sm-flex"):
+        span = div.find("span", class_="d-block")
+        if not span:
+            continue
+        strong = span.find("strong")
+        if not strong:
+            continue
+        title_a = strong.find("a")
+        if not title_a:
+            continue
+        href = title_a.get("href", "")
+        # Skip proceedings header entries (href ends with .0/)
+        if href.rstrip("/").endswith(".0"):
+            continue
+        title = title_a.get_text(strip=True)
+        if href and not href.startswith("http"):
+            href = f"{ANTHOLOGY_BASE_URL}{href}"
+
+        # Authors are <a> tags with /people/ in their href (outside <strong>)
+        authors = []
+        for a in span.find_all("a"):
+            if a.find_parent("strong"):
+                continue  # skip title link
+            author_href = a.get("href", "")
+            if "/people/" in author_href:
+                authors.append(a.get_text(strip=True))
+
+        if not authors:
+            continue
+
+        papers.append(Paper(
+            title=title,
+            link=href,
+            authors=authors,
+            selection=selection,
+        ))
+
+    return papers
+
+
+def _scrape_anthology(url: str, selection: str) -> list[Paper]:
+    """Scrape papers from an ACL Anthology volume page."""
+    logger.info("Scraping anthology: %s", url)
+    response = requests.get(url, timeout=30)
+    response.raise_for_status()
+    return _parse_anthology(response.text, selection)
+
+
+def scrape_eacl_2023() -> list[Paper]:
+    return _scrape_anthology(f"{ANTHOLOGY_BASE_URL}/volumes/2023.eacl-main/", "main")
+
+
+def scrape_eacl_2024() -> list[Paper]:
+    return _scrape_anthology(f"{ANTHOLOGY_BASE_URL}/volumes/2024.eacl-long/", "main")
+
+
+def scrape_coling_2024() -> list[Paper]:
+    return _scrape_anthology(f"{ANTHOLOGY_BASE_URL}/volumes/2024.lrec-main/", "main")
+
+
 def scrape_coling_2025() -> list[Paper]:
     return _scrape_separate_pages("https://coling2025.org", {
         "main": "/program/main_conference_papers/",
@@ -240,9 +314,12 @@ def scrape_coling_2025() -> list[Paper]:
 SCRAPERS = {
     "emnlp_2023": scrape_emnlp_2023,
     "acl_2023": scrape_acl_2023,
+    "eacl_2023": scrape_eacl_2023,
     "emnlp_2024": scrape_emnlp_2024,
     "acl_2024": scrape_acl_2024,
     "naacl_2024": scrape_naacl_2024,
+    "eacl_2024": scrape_eacl_2024,
+    "coling_2024": scrape_coling_2024,
     "coling_2025": scrape_coling_2025,
     "emnlp_2025": scrape_emnlp_2025,
     "acl_2025": scrape_acl_2025,
