@@ -161,6 +161,18 @@ class TestScrapeDblp:
         assert papers[0].title == "Title With Dot"
 
     @patch("ppr.scrapers.dblp._fetch_dblp")
+    def test_unescapes_html_entities_in_title(self, mock_fetch):
+        mock_fetch.return_value = [
+            {
+                "title": "That&apos;s a Tough Call.",
+                "authors": {"author": [{"text": "Alice"}]},
+                "ee": "https://doi.org/10.1145/1",
+            },
+        ]
+        papers = _scrape_dblp("icse_2024")
+        assert papers[0].title == "That's a Tough Call"
+
+    @patch("ppr.scrapers.dblp._fetch_dblp")
     def test_handles_single_author(self, mock_fetch):
         mock_fetch.return_value = [
             {

@@ -5,6 +5,7 @@ All four conferences are indexed, including PACMSE journal articles
 for FSE 2024+ and ISSTA 2025+.
 """
 
+import html
 import logging
 import re
 import time
@@ -114,7 +115,7 @@ def _scrape_dblp(conf_id: str) -> list[Paper]:
         if isinstance(ee, list):
             ee = ee[0]
 
-        title = hit.get("title", "")
+        title = html.unescape(hit.get("title", ""))
         if title.endswith("."):
             title = title[:-1]
 
