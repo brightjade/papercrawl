@@ -122,3 +122,111 @@ class TestFetchDblp:
 
         result = _fetch_dblp("db/conf/icse/icse2099.bht")
         assert result == []
+
+
+from ppr.scrapers.dblp import _scrape_dblp, SCRAPERS, DBLP_CONFERENCES
+
+
+class TestScrapeDblp:
+    @patch("ppr.scrapers.dblp._fetch_dblp")
+    def test_maps_dblp_to_paper_objects(self, mock_fetch):
+        mock_fetch.return_value = [
+            {
+                "title": "Some Great Paper.",
+                "authors": {"author": [
+                    {"text": "Alice Smith 0001"},
+                    {"text": "Bob Jones"},
+                ]},
+                "ee": "https://doi.org/10.1145/12345",
+            },
+        ]
+        papers = _scrape_dblp("icse_2024")
+        assert len(papers) == 1
+        p = papers[0]
+        assert p.title == "Some Great Paper"
+        assert p.authors == ["Alice Smith", "Bob Jones"]
+        assert p.link == "https://doi.org/10.1145/12345"
+        assert p.selection == "main"
+
+    @patch("ppr.scrapers.dblp._fetch_dblp")
+    def test_strips_trailing_dot_from_title(self, mock_fetch):
+        mock_fetch.return_value = [
+            {
+                "title": "Title With Dot.",
+                "authors": {"author": [{"text": "Alice"}]},
+                "ee": "https://doi.org/10.1145/1",
+            },
+        ]
+        papers = _scrape_dblp("icse_2024")
+        assert papers[0].title == "Title With Dot"
+
+    @patch("ppr.scrapers.dblp._fetch_dblp")
+    def test_handles_single_author(self, mock_fetch):
+        mock_fetch.return_value = [
+            {
+                "title": "Solo Paper.",
+                "authors": {"author": {"text": "Solo Author 0002"}},
+                "ee": "https://doi.org/10.1145/1",
+            },
+        ]
+        papers = _scrape_dblp("icse_2024")
+        assert papers[0].authors == ["Solo Author"]
+
+    @patch("ppr.scrapers.dblp._fetch_dblp")
+    def test_skips_entries_without_ee(self, mock_fetch):
+        mock_fetch.return_value = [
+            {
+                "title": "No Link Paper.",
+                "authors": {"author": [{"text": "Alice"}]},
+            },
+        ]
+        papers = _scrape_dblp("icse_2024")
+        assert len(papers) == 0
+
+    @patch("ppr.scrapers.dblp._fetch_dblp")
+    def test_handles_ee_as_list(self, mock_fetch):
+        mock_fetch.return_value = [
+            {
+                "title": "Multi Link.",
+                "authors": {"author": [{"text": "Alice"}]},
+                "ee": ["https://doi.org/10.1145/1", "https://doi.org/10.1145/2"],
+            },
+        ]
+        papers = _scrape_dblp("icse_2024")
+        assert len(papers) == 1
+        assert papers[0].link == "https://doi.org/10.1145/1"
+
+    @patch("ppr.scrapers.dblp._fetch_dblp")
+    def test_passes_number_for_pacmse(self, mock_fetch):
+        mock_fetch.return_value = []
+        _scrape_dblp("fse_2025")
+        mock_fetch.assert_called_once_with(
+            "db/journals/pacmse/pacmse2.bht", number="FSE"
+        )
+
+    @patch("ppr.scrapers.dblp._fetch_dblp")
+    def test_no_number_for_traditional(self, mock_fetch):
+        mock_fetch.return_value = []
+        _scrape_dblp("icse_2024")
+        mock_fetch.assert_called_once_with(
+            "db/conf/icse/icse2024.bht", number=None
+        )
+
+
+class TestScrapersDict:
+    def test_all_conferences_registered(self):
+        for conf_id in DBLP_CONFERENCES:
+            assert conf_id in SCRAPERS, f"{conf_id} not in SCRAPERS"
+
+    def test_expected_conference_ids(self):
+        expected = {
+            "icse_2023", "icse_2024", "icse_2025",
+            "fse_2023", "fse_2024", "fse_2025",
+            "ase_2023", "ase_2024", "ase_2025",
+            "issta_2023", "issta_2024", "issta_2025",
+        }
+        assert expected == set(DBLP_CONFERENCES.keys())
+
+    def test_scrapers_are_callable(self):
+        for conf_id, scraper in SCRAPERS.items():
+            assert callable(scraper), f"{conf_id} scraper is not callable"

@@ -8,8 +8,11 @@ for FSE 2024+ and ISSTA 2025+.
 import logging
 import re
 import time
+from functools import partial
 
 import requests
+
+from ppr.models import Paper
 
 
 def _clean_author(name: str) -> str:
@@ -74,3 +77,62 @@ def _fetch_dblp(key: str, number: str | None = None) -> list[dict]:
 
     logger.info("Fetched %d papers (total on DBLP: %s)", len(all_hits), total)
     return all_hits
+
+
+DBLP_CONFERENCES = {
+    # ICSE (traditional proceedings)
+    "icse_2023": {"key": "db/conf/icse/icse2023.bht"},
+    "icse_2024": {"key": "db/conf/icse/icse2024.bht"},
+    "icse_2025": {"key": "db/conf/icse/icse2025.bht"},
+    # FSE (traditional 2023, PACMSE 2024+)
+    "fse_2023": {"key": "db/conf/sigsoft/fse2023.bht"},
+    "fse_2024": {"key": "db/journals/pacmse/pacmse1.bht"},
+    "fse_2025": {"key": "db/journals/pacmse/pacmse2.bht", "number": "FSE"},
+    # ASE (traditional proceedings, DBLP key prefix is 'kbse')
+    "ase_2023": {"key": "db/conf/kbse/ase2023.bht"},
+    "ase_2024": {"key": "db/conf/kbse/ase2024.bht"},
+    "ase_2025": {"key": "db/conf/kbse/ase2025.bht"},
+    # ISSTA (traditional 2023-2024, PACMSE 2025+)
+    "issta_2023": {"key": "db/conf/issta/issta2023.bht"},
+    "issta_2024": {"key": "db/conf/issta/issta2024.bht"},
+    "issta_2025": {"key": "db/journals/pacmse/pacmse2.bht", "number": "ISSTA"},
+}
+
+
+def _scrape_dblp(conf_id: str) -> list[Paper]:
+    """Scrape all papers for a conference from DBLP."""
+    conf = DBLP_CONFERENCES[conf_id]
+    hits = _fetch_dblp(conf["key"], number=conf.get("number"))
+
+    papers = []
+    for hit in hits:
+        ee = hit.get("ee")
+        if not ee:
+            continue
+
+        # Handle ee being a string or a list (DBLP sometimes returns a list)
+        if isinstance(ee, list):
+            ee = ee[0]
+
+        title = hit.get("title", "")
+        if title.endswith("."):
+            title = title[:-1]
+
+        # Authors can be a single dict or a list of dicts
+        authors_raw = hit.get("authors", {}).get("author", [])
+        if isinstance(authors_raw, dict):
+            authors_raw = [authors_raw]
+        authors = [_clean_author(a["text"]) for a in authors_raw]
+
+        papers.append(Paper(
+            title=title,
+            link=ee,
+            authors=authors,
+            selection="main",
+        ))
+
+    logger.info("Scraped %d papers for %s", len(papers), conf_id)
+    return papers
+
+
+SCRAPERS = {conf_id: partial(_scrape_dblp, conf_id) for conf_id in DBLP_CONFERENCES}
