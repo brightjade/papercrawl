@@ -4,7 +4,6 @@
 
 .trends-section h3 {
   font-size: 1.15rem;
-  margin-bottom: 1rem;
 }
 
 .trends-section-header {
@@ -14,14 +13,33 @@
   margin-bottom: 1rem;
 }
 
-.topn-select {
-  padding: 0.4rem 0.6rem;
+.year-tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.year-tab {
+  padding: 0.35rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-card);
-  color: var(--text-primary);
+  color: var(--text-secondary);
   font-family: var(--font-body);
   font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.year-tab:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.year-tab.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 
 .chart-container {
