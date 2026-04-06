@@ -1,6 +1,7 @@
 """Build static JSON data files from JSONL paper outputs for the web app."""
 
 import json
+import shutil
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -53,12 +54,14 @@ def build_manifest_entry(conf_id: str, papers: list[dict]) -> dict:
     tracks = sorted({p.get("selection", "") for p in papers} - {""})
 
     top_papers = []
+    total_citations = 0
     if has_citations:
         sorted_papers = sorted(
             [p for p in papers if "citation_count" in p],
             key=lambda p: p["citation_count"],
             reverse=True,
         )
+        total_citations = sum(p["citation_count"] for p in sorted_papers)
         top_papers = [
             {"title": p["title"], "citation_count": p["citation_count"]}
             for p in sorted_papers[:3]
@@ -70,6 +73,7 @@ def build_manifest_entry(conf_id: str, papers: list[dict]) -> dict:
         "year": year,
         "paper_count": len(papers),
         "has_citations": has_citations,
+        "total_citations": total_citations,
         "tracks": tracks,
         "top_papers": top_papers,
     }
@@ -104,28 +108,20 @@ def build_author_index(all_papers: dict[str, list[dict]]) -> list[dict]:
 
 
 def build_trends(all_papers: dict[str, list[dict]]) -> dict:
-    """Build keyword and venue trend data."""
-    keywords_by_year: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    """Build venue paper-count and citation-count trend data."""
     venue_counts_by_year: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    citation_counts_by_year: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
     for conf_id, papers in all_papers.items():
         venue, year = parse_conference_id(conf_id)
         year_str = str(year)
         venue_counts_by_year[year_str][venue] += len(papers)
         for paper in papers:
-            for kw in paper.get("keywords", []):
-                if kw:
-                    keywords_by_year[year_str][kw.lower()] += 1
-
-    # Keep only top 50 keywords per year to limit file size
-    trimmed_keywords: dict[str, dict[str, int]] = {}
-    for year, kws in keywords_by_year.items():
-        top = sorted(kws.items(), key=lambda x: x[1], reverse=True)[:50]
-        trimmed_keywords[year] = dict(top)
+            citation_counts_by_year[year_str][venue] += paper.get("citation_count", 0)
 
     return {
-        "keywords_by_year": trimmed_keywords,
         "venue_counts_by_year": dict(venue_counts_by_year),
+        "citation_counts_by_year": dict(citation_counts_by_year),
     }
 
 
@@ -146,9 +142,16 @@ def build_all(outputs_dir: Path, out_dir: Path) -> None:
         all_papers[conf_id] = papers
         manifest.append(build_manifest_entry(conf_id, papers))
 
-        # Write per-conference file
+        # Write per-conference JSON file
         with open(out_dir / f"{conf_id}.json", "w") as f:
             json.dump(papers, f, ensure_ascii=False)
+
+        # Copy JSONL file for download
+        enriched = conf_dir / "papers_enriched.jsonl"
+        plain = conf_dir / "papers.jsonl"
+        source_jsonl = enriched if enriched.exists() else plain
+        if source_jsonl.exists():
+            shutil.copy2(source_jsonl, out_dir / f"{conf_id}.jsonl")
 
     # Sort manifest by year desc, then venue name
     manifest.sort(key=lambda m: (-m["year"], m["venue"]))

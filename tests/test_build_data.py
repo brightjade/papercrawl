@@ -120,11 +120,13 @@ class TestBuildManifestEntry:
         assert sorted(entry["tracks"]) == ["oral", "poster"]
         assert len(entry["top_papers"]) == 3
         assert entry["top_papers"][0]["citation_count"] == 100
+        assert entry["total_citations"] == 160
 
     def test_without_citations(self, sample_outputs):
         papers = load_papers(sample_outputs / "acl_2025")
         entry = build_manifest_entry("acl_2025", papers)
         assert entry["has_citations"] is False
+        assert entry["total_citations"] == 0
         assert entry["top_papers"] == []
 
 
@@ -146,16 +148,18 @@ class TestBuildAuthorIndex:
 
 
 class TestBuildTrends:
-    def test_keywords(self, sample_outputs):
+    def test_venue_and_citation_counts(self, sample_outputs):
         all_papers = {
             "iclr_2025": load_papers(sample_outputs / "iclr_2025"),
             "acl_2025": load_papers(sample_outputs / "acl_2025"),
         }
         trends = build_trends(all_papers)
-        assert trends["keywords_by_year"]["2025"]["nlp"] == 3
-        assert trends["keywords_by_year"]["2025"]["transformers"] == 1
         assert trends["venue_counts_by_year"]["2025"]["ICLR"] == 3
         assert trends["venue_counts_by_year"]["2025"]["ACL"] == 1
+        # ICLR papers: 100 + 50 + 10 = 160
+        assert trends["citation_counts_by_year"]["2025"]["ICLR"] == 160
+        # ACL paper has no citation_count
+        assert trends["citation_counts_by_year"]["2025"]["ACL"] == 0
 
 
 class TestBuildAll:
