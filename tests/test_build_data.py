@@ -207,7 +207,7 @@ class TestBuildAll:
         assert (out_dir / "trends.json").exists()
 
         manifest = json.loads((out_dir / "manifest.json").read_text())
-        assert len(manifest) == 2
+        assert len(manifest["conferences"]) == 2
 
         iclr_data = json.loads((out_dir / "iclr_2025.json").read_text())
         assert len(iclr_data) == 3

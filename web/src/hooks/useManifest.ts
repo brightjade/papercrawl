@@ -5,6 +5,7 @@ const BASE = import.meta.env.BASE_URL;
 
 export function useManifest() {
   const [data, setData] = useState<ConferenceMeta[] | null>(null);
+  const [citationUpdated, setCitationUpdated] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -13,9 +14,12 @@ export function useManifest() {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then(setData)
+      .then((json) => {
+        setData(json.conferences);
+        setCitationUpdated(json.citation_updated ?? null);
+      })
       .catch((e) => setError(e.message));
   }, []);
 
-  return { data, error };
+  return { data, citationUpdated, error };
 }

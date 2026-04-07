@@ -146,3 +146,7 @@ a:hover {
   color: var(--text-muted);
   font-size: 0.85rem;
 }
+
+.citation-updated {
+  margin-bottom: 0.5rem;
+}

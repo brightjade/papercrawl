@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
 import { useDarkMode } from "./hooks/useDarkMode";
+import { useManifest } from "./hooks/useManifest";
 import { Home } from "./pages/Home";
 import { Conference } from "./pages/Conference";
 import { Author } from "./pages/Author";
@@ -8,6 +9,7 @@ import "./App.css";
 
 export default function App() {
   const { dark, toggle } = useDarkMode();
+  const { citationUpdated } = useManifest();
 
   return (
     <BrowserRouter basename="/paper-explorer">
@@ -33,6 +35,9 @@ export default function App() {
           <Route path="/trends" element={<Trends />} />
         </Routes>
         <footer className="app-footer">
+          {citationUpdated && (
+            <div className="citation-updated">Citation data last updated: {citationUpdated}</div>
+          )}
           Made with ♥ by <a href="https://brightjade.github.io/" target="_blank" rel="noopener noreferrer">Minseok Choi</a>
         </footer>
       </div>

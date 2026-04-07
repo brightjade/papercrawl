@@ -136,12 +136,20 @@ def build_trends(all_papers: dict[str, list[dict]]) -> dict:
     }
 
 
+def read_citation_updated(data_dir: Path) -> str | None:
+    """Read the citation update date from data/citation_updated.txt."""
+    path = data_dir / "citation_updated.txt"
+    if path.exists():
+        return path.read_text().strip()
+    return None
+
+
 def build_all(data_dir: Path, out_dir: Path) -> None:
     """Build all static JSON files from JSONL data."""
     out_dir.mkdir(parents=True, exist_ok=True)
 
     all_papers: dict[str, list[dict]] = {}
-    manifest: list[dict] = []
+    conferences: list[dict] = []
 
     for conf_dir in sorted(data_dir.iterdir()):
         if not conf_dir.is_dir():
@@ -151,7 +159,7 @@ def build_all(data_dir: Path, out_dir: Path) -> None:
         if not papers:
             continue
         all_papers[conf_id] = papers
-        manifest.append(build_manifest_entry(conf_id, papers))
+        conferences.append(build_manifest_entry(conf_id, papers))
 
         # Write per-conference JSON file
         with open(out_dir / f"{conf_id}.json", "w") as f:
@@ -164,8 +172,13 @@ def build_all(data_dir: Path, out_dir: Path) -> None:
         if source_jsonl.exists():
             shutil.copy2(source_jsonl, out_dir / f"{conf_id}.jsonl")
 
-    # Sort manifest by year desc, then venue name
-    manifest.sort(key=lambda m: (-m["year"], m["venue"]))
+    # Sort conferences by year desc, then venue name
+    conferences.sort(key=lambda m: (-m["year"], m["venue"]))
+
+    manifest = {"conferences": conferences}
+    citation_updated = read_citation_updated(data_dir)
+    if citation_updated:
+        manifest["citation_updated"] = citation_updated
 
     with open(out_dir / "manifest.json", "w") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
@@ -176,7 +189,7 @@ def build_all(data_dir: Path, out_dir: Path) -> None:
     with open(out_dir / "trends.json", "w") as f:
         json.dump(build_trends(all_papers), f, ensure_ascii=False, indent=2)
 
-    print(f"Built {len(manifest)} conferences -> {out_dir}")
+    print(f"Built {len(conferences)} conferences -> {out_dir}")
 
 
 if __name__ == "__main__":
