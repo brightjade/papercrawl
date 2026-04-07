@@ -344,6 +344,57 @@ class TestParseEcva:
         papers = _parse_ecva("<html><body></body></html>")
         assert papers == []
 
+    def test_filters_by_year(self):
+        """When year is given, only papers from that accordion section are returned."""
+        html = """\
+        <div class="py-6 container">
+          <button class="accordion">ECCV 2022 Papers</button>
+          <div class="accordion-content">
+          <div id="content"><dl>
+            <dt class="ptitle"><br><a href="papers/eccv_2022/html/1.php">Old Paper</a></dt>
+            <dd>Author A</dd>
+            <dd>[<a href='papers/eccv_2022/papers/00001.pdf'>pdf</a>]</dd>
+          </dl></div>
+          </div>
+          <button class="accordion">ECCV 2024 Papers</button>
+          <div class="accordion-content">
+          <div id="content"><dl>
+            <dt class="ptitle"><br><a href="papers/eccv_2024/html/2.php">New Paper</a></dt>
+            <dd>Author B</dd>
+            <dd>[<a href='papers/eccv_2024/papers/00002.pdf'>pdf</a>]</dd>
+          </dl></div>
+          </div>
+        </div>
+        """
+        papers = _parse_ecva(html, year=2024)
+        assert len(papers) == 1
+        assert papers[0].title == "New Paper"
+
+    def test_no_year_returns_all(self):
+        """When year is None, all papers from all sections are returned."""
+        html = """\
+        <div class="py-6 container">
+          <button class="accordion">ECCV 2022 Papers</button>
+          <div class="accordion-content">
+          <div id="content"><dl>
+            <dt class="ptitle"><br><a href="papers/eccv_2022/html/1.php">Old Paper</a></dt>
+            <dd>Author A</dd>
+            <dd>[<a href='papers/eccv_2022/papers/00001.pdf'>pdf</a>]</dd>
+          </dl></div>
+          </div>
+          <button class="accordion">ECCV 2024 Papers</button>
+          <div class="accordion-content">
+          <div id="content"><dl>
+            <dt class="ptitle"><br><a href="papers/eccv_2024/html/2.php">New Paper</a></dt>
+            <dd>Author B</dd>
+            <dd>[<a href='papers/eccv_2024/papers/00002.pdf'>pdf</a>]</dd>
+          </dl></div>
+          </div>
+        </div>
+        """
+        papers = _parse_ecva(html)
+        assert len(papers) == 2
+
     def test_skips_dt_without_anchor(self):
         html = """\
         <dl>
