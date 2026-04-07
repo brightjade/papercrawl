@@ -144,7 +144,10 @@ def fetch_dblp_count(keys: list[str]) -> int:
 
 
 def _count_one_key(key: str) -> int:
-    """Count non-Editorship papers for a single DBLP toc key."""
+    """Count non-Editorship papers for a single DBLP toc key.
+
+    Returns 0 if the key is not found or the API returns an error.
+    """
     offset = 0
     count = 0
 
@@ -156,8 +159,12 @@ def _count_one_key(key: str) -> int:
             "format": "json",
         }
         logger.debug("DBLP API: key=%s offset=%d", key, offset)
-        resp = requests.get(DBLP_API_URL, params=params, timeout=30)
-        resp.raise_for_status()
+        try:
+            resp = requests.get(DBLP_API_URL, params=params, timeout=30)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            logger.warning("DBLP API error for %s: %s", key, e)
+            return count
         data = resp.json()
 
         hits_data = data["result"]["hits"]
