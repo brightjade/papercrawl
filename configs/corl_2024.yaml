@@ -2,8 +2,6 @@ conference:
   name: "CoRL"
   year: 2024
   venue_id: "robot-learning.org/CoRL/2024/Conference"
-  api_version: 1
+  api_version: 2
   selections:
-    oral: "CoRL 2024 Oral"
-    spotlight: "CoRL 2024 Spotlight"
-    poster: "CoRL 2024 Poster"
+    main: "CoRL 2024"
