@@ -1,0 +1,8 @@
+conference:
+  name: "CoRL"
+  year: 2025
+  venue_id: "robot-learning.org/CoRL/2025/Conference"
+  api_version: 2
+  selections:
+    oral: "CoRL 2025 Oral"
+    poster: "CoRL 2025 Poster"
