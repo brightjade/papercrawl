@@ -185,3 +185,16 @@ class TestValidateConference:
             result = validate_conference("iclr_2023")
 
         assert result.status == "NO_DATA"
+
+
+class TestMappingConsistency:
+    def test_dblp_source_ids_matches_scraper(self):
+        """DBLP_SOURCE_IDS must exactly match the conferences in dblp.py."""
+        from ppr.scrapers.dblp import DBLP_CONFERENCES
+
+        assert DBLP_SOURCE_IDS == set(DBLP_CONFERENCES.keys())
+
+    def test_no_overlap_between_source_and_validation(self):
+        """A conference should not be both DBLP-sourced and have validation keys."""
+        overlap = DBLP_SOURCE_IDS & set(DBLP_VALIDATION_KEYS.keys())
+        assert overlap == set(), f"Overlap: {overlap}"
