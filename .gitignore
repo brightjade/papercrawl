@@ -5,7 +5,8 @@ __pycache__/
 .env
 .DS_Store
 .superpowers/
-outputs/
+docs/superpowers/
+data/
 
 # Web app
 web/node_modules/

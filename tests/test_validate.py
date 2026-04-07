@@ -117,7 +117,7 @@ class TestValidateConference:
         papers_file.write_text(
             "\n".join(json.dumps({"title": f"P{i}", "link": "", "authors": []}) for i in range(100))
         )
-        monkeypatch.setattr("ppr.validate.OUTPUTS_DIR", tmp_path)
+        monkeypatch.setattr("ppr.validate.DATA_DIR", tmp_path)
 
         with patch("ppr.validate.fetch_dblp_count", return_value=100):
             result = validate_conference("iclr_2023")
@@ -133,7 +133,7 @@ class TestValidateConference:
         papers_file.write_text(
             "\n".join(json.dumps({"title": f"P{i}", "link": "", "authors": []}) for i in range(200))
         )
-        monkeypatch.setattr("ppr.validate.OUTPUTS_DIR", tmp_path)
+        monkeypatch.setattr("ppr.validate.DATA_DIR", tmp_path)
 
         with patch("ppr.validate.fetch_dblp_count", return_value=100):
             result = validate_conference("iclr_2023", tolerance=0.1)
@@ -149,7 +149,7 @@ class TestValidateConference:
         papers_file.write_text(
             "\n".join(json.dumps({"title": f"P{i}", "link": "", "authors": []}) for i in range(105))
         )
-        monkeypatch.setattr("ppr.validate.OUTPUTS_DIR", tmp_path)
+        monkeypatch.setattr("ppr.validate.DATA_DIR", tmp_path)
 
         with patch("ppr.validate.fetch_dblp_count", return_value=100):
             result = validate_conference("iclr_2023", tolerance=0.1)
@@ -157,7 +157,7 @@ class TestValidateConference:
         assert result.status == "PASS"
 
     def test_skip_dblp_sourced_conference(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("ppr.validate.OUTPUTS_DIR", tmp_path)
+        monkeypatch.setattr("ppr.validate.DATA_DIR", tmp_path)
         result = validate_conference("icse_2024")
         assert result.status == "SKIP"
 
@@ -165,13 +165,13 @@ class TestValidateConference:
         conf_dir = tmp_path / "colm_2024"
         conf_dir.mkdir()
         (conf_dir / "papers.jsonl").write_text('{"title":"P","link":"","authors":[]}\n')
-        monkeypatch.setattr("ppr.validate.OUTPUTS_DIR", tmp_path)
+        monkeypatch.setattr("ppr.validate.DATA_DIR", tmp_path)
 
         result = validate_conference("colm_2024")
         assert result.status == "NO_DATA"
 
     def test_no_data_when_no_output_file(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("ppr.validate.OUTPUTS_DIR", tmp_path)
+        monkeypatch.setattr("ppr.validate.DATA_DIR", tmp_path)
         result = validate_conference("iclr_2023")
         assert result.status == "NO_DATA"
 
@@ -179,7 +179,7 @@ class TestValidateConference:
         conf_dir = tmp_path / "iclr_2023"
         conf_dir.mkdir()
         (conf_dir / "papers.jsonl").write_text('{"title":"P","link":"","authors":[]}\n')
-        monkeypatch.setattr("ppr.validate.OUTPUTS_DIR", tmp_path)
+        monkeypatch.setattr("ppr.validate.DATA_DIR", tmp_path)
 
         with patch("ppr.validate.fetch_dblp_count", return_value=0):
             result = validate_conference("iclr_2023")

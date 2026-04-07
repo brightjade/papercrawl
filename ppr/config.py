@@ -60,4 +60,4 @@ class CrawlConfig:
         )
 
     def get_save_path(self) -> Path:
-        return Path("outputs") / self.conference_id / "papers.jsonl"
+        return Path("data") / self.conference_id / "papers.jsonl"
