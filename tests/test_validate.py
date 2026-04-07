@@ -33,8 +33,9 @@ class TestFetchDblpCount:
         count = fetch_dblp_count(["db/conf/iclr/iclr2023.bht"])
         assert count == 150
 
+    @patch("ppr.validate.time.sleep")
     @patch("ppr.validate.requests.get")
-    def test_multiple_keys_sums_counts(self, mock_get):
+    def test_multiple_keys_sums_counts(self, mock_get, mock_sleep):
         resp1 = MagicMock()
         resp1.json.return_value = _make_dblp_response(100)
         resp1.raise_for_status = MagicMock()
@@ -57,6 +58,32 @@ class TestFetchDblpCount:
 
         count = fetch_dblp_count(["db/conf/colm/colm2024.bht"])
         assert count == 0
+
+    @patch("ppr.validate.time.sleep")
+    @patch("ppr.validate.requests.get")
+    def test_paginates_when_more_than_1000(self, mock_get, mock_sleep):
+        page1_hits = [
+            {"info": {"title": f"P{i}.", "type": "Conference and Workshop Papers"}}
+            for i in range(1000)
+        ]
+        resp1 = MagicMock()
+        resp1.json.return_value = _make_dblp_response(1200, page1_hits)
+        resp1.raise_for_status = MagicMock()
+
+        page2_hits = [
+            {"info": {"title": f"Q{i}.", "type": "Conference and Workshop Papers"}}
+            for i in range(200)
+        ]
+        resp2 = MagicMock()
+        resp2.json.return_value = _make_dblp_response(1200, page2_hits)
+        resp2.raise_for_status = MagicMock()
+
+        mock_get.side_effect = [resp1, resp2]
+
+        count = fetch_dblp_count(["db/conf/cvpr/cvpr2023.bht"])
+        assert count == 1200
+        assert mock_get.call_count == 2
+        mock_sleep.assert_called_once_with(1)
 
     @patch("ppr.validate.requests.get")
     def test_subtracts_editorship_entries(self, mock_get):

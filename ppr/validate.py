@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 DBLP_API_URL = "https://dblp.org/search/publ/api"
 HITS_PER_PAGE = 1000
 
-# Conference IDs sourced from ppr/scrapers/dblp.py — skip these in validation
-# (cross-checking DBLP against itself is circular).
+# Conferences scraped directly from DBLP (ppr/scrapers/dblp.py).
+# Validating these against DBLP would be circular — skip them.
 DBLP_SOURCE_IDS: set[str] = {
     "icse_2023", "icse_2024", "icse_2025",
     "fse_2023", "fse_2024", "fse_2025",
@@ -118,9 +118,9 @@ DBLP_VALIDATION_KEYS: dict[str, list[str]] = {
     "wacv_2023": ["db/conf/wacv/wacv2023.bht"],
     "wacv_2024": ["db/conf/wacv/wacv2024.bht"],
     "wacv_2025": ["db/conf/wacv/wacv2025.bht"],
-    # wacv_2026: not yet indexed
+    # iccv_2025, wacv_2026: not yet indexed (pre-publication)
+    # eccv_2024: 89 volumes on DBLP — fetching counts takes ~90s
     "eccv_2024": [f"db/conf/eccv/eccv2024-{i}.bht" for i in range(1, 90)],
-    # --- RSS (scraped from roboticsconference.org, not DBLP) ---
     # rss_2025: not yet indexed
 }
 
@@ -151,6 +151,7 @@ def _count_one_key(key: str) -> int:
             "f": offset,
             "format": "json",
         }
+        logger.debug("DBLP API: key=%s offset=%d", key, offset)
         resp = requests.get(DBLP_API_URL, params=params, timeout=30)
         resp.raise_for_status()
         data = resp.json()
@@ -171,4 +172,5 @@ def _count_one_key(key: str) -> int:
 
         time.sleep(1)
 
+    logger.debug("DBLP count for %s: %d papers", key, count)
     return count
