@@ -28,7 +28,23 @@ uv sync
 
 This creates a virtual environment and installs all required packages automatically.
 
-### 3. Set up OpenReview credentials (optional)
+### 3. Download paper data
+
+The paper data is hosted as a GitHub Release asset. Run the setup script to download and extract it:
+
+```bash
+./setup.sh
+```
+
+This downloads the latest data snapshot (~60 MB) and extracts it to `data/`. You can also download a specific release:
+
+```bash
+./setup.sh data-2025-04-07
+```
+
+> **Note:** Requires either the [GitHub CLI](https://cli.github.com/) (`gh`) or `curl`. If you don't have `gh`, the script falls back to `curl` automatically.
+
+### 4. Set up OpenReview credentials (optional)
 
 Only needed if you want to crawl OpenReview conferences (ICLR, NeurIPS, ICML, COLM, CoRL). Other conferences are scraped from public websites and don't require authentication.
 
@@ -137,3 +153,23 @@ OpenReview papers include title, authors, selection, keywords, abstract, PDF lin
 ```bash
 uv run pytest tests/
 ```
+
+## Literature Survey (Claude Code skill)
+
+Use the `/survey` command in Claude Code to generate a grounded literature survey from the accepted papers in this repository. Requires enriched data (`papers_enriched.jsonl`) for the target conferences.
+
+```
+# Specify conferences and year range
+/survey I'm exploring efficient inference methods for large language models,
+like speculative decoding and early exit strategies. Search NLP and ML
+conferences from 2023-2025.
+
+# Let it ask you for scope
+/survey What papers exist on 3D object detection from point clouds?
+
+# Target specific venues
+/survey Find related work on code generation with LLMs. Search ICSE, FSE,
+ASE, ACL, and EMNLP from 2023-2025.
+```
+
+The survey searches through real accepted papers, ranks by citation count, identifies datasets and benchmarks, and highlights research gaps. Output is saved to `outputs/<topic>_<timestamp>.md`.
