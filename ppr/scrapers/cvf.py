@@ -150,8 +150,11 @@ def _parse_accepted(html: str) -> list[Paper]:
     return papers
 
 
-def _parse_ecva(html: str) -> list[Paper]:
+def _parse_ecva(html: str, year: int | None = None) -> list[Paper]:
     """Parse papers from the ECVA papers page (https://www.ecva.net/papers.php).
+
+    The page contains papers from multiple ECCV years in accordion sections.
+    When *year* is given, only the matching section is parsed.
 
     Page structure uses a definition list inside ``<div id="content">``:
 
@@ -170,7 +173,21 @@ def _parse_ecva(html: str) -> list[Paper]:
     soup = BeautifulSoup(html, "html.parser")
     papers: list[Paper] = []
 
-    for dt in soup.select("dt.ptitle"):
+    # Narrow scope to the matching year's accordion section if year is given.
+    scope = soup
+    if year is not None:
+        for btn in soup.select("button.accordion"):
+            if str(year) in btn.get_text():
+                # The accordion-content div follows the button
+                accordion_div = btn.find_next_sibling("div", class_="accordion-content")
+                if accordion_div:
+                    scope = accordion_div
+                    break
+        else:
+            logger.warning("No accordion section found for ECCV %d", year)
+            return []
+
+    for dt in scope.select("dt.ptitle"):
         title_a = dt.select_one("a")
         if not title_a:
             continue
@@ -240,7 +257,7 @@ CVF_CONFERENCES = {
     "iccv_2025": {"url": "https://iccv.thecvf.com/Conferences/2025/AcceptedPapers", "parser": "accepted"},
     "wacv_2026": {"url": "https://wacv.thecvf.com/Conferences/2026/AcceptedPapers", "parser": "accepted"},
     # ECVA
-    "eccv_2024": {"url": f"{ECVA_BASE_URL}/papers.php", "parser": "ecva"},
+    "eccv_2024": {"url": f"{ECVA_BASE_URL}/papers.php", "parser": "ecva", "year": 2024},
 }
 
 
@@ -259,7 +276,7 @@ def _scrape_cvf(conf_id: str) -> list[Paper]:
     elif parser_type == "accepted":
         papers = _parse_accepted(response.text)
     elif parser_type == "ecva":
-        papers = _parse_ecva(response.text)
+        papers = _parse_ecva(response.text, year=conf.get("year"))
     else:
         raise ValueError(f"Unknown parser type: {parser_type}")
 
