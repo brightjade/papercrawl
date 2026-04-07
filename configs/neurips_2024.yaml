@@ -2,7 +2,12 @@ conference:
   name: "NeurIPS"
   year: 2024
   venue_id: "NeurIPS.cc/2024/Conference"
+  extra_venue_ids:
+    - "NeurIPS.cc/2024/Datasets_and_Benchmarks_Track"
   selections:
     oral: "NeurIPS 2024 oral"
     spotlight: "NeurIPS 2024 spotlight"
     poster: "NeurIPS 2024 poster"
+    datasets_oral: "NeurIPS 2024 Datasets and Benchmarks Track oral"
+    datasets_spotlight: "NeurIPS 2024 Datasets and Benchmarks Track spotlight"
+    datasets_poster: "NeurIPS 2024 Datasets and Benchmarks Track poster"

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -12,6 +12,7 @@ class CrawlConfig:
     selections: dict[str, str]  # selection_name -> venue string (e.g., "ICLR 2025 Oral")
     conference_id: str  # e.g., "iclr_2025" (derived from filename)
     api_version: int = 2  # OpenReview API version (1 or 2)
+    extra_venue_ids: list[str] = field(default_factory=list)  # additional venue IDs to query (e.g., D&B track)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "CrawlConfig":
@@ -46,6 +47,7 @@ class CrawlConfig:
         conference_id = path.stem  # e.g., "iclr_2025"
 
         api_version = conference.get("api_version", 2)
+        extra_venue_ids = conference.get("extra_venue_ids", [])
 
         return cls(
             name=name,
@@ -54,6 +56,7 @@ class CrawlConfig:
             selections=selections,
             conference_id=conference_id,
             api_version=api_version,
+            extra_venue_ids=extra_venue_ids,
         )
 
     def get_save_path(self) -> Path:

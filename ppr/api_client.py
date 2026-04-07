@@ -85,6 +85,16 @@ class OpenReviewAPIClient:
                     invitation=invitation,
                     content={"venueid": self.config.venue_id},
                 )
+                # Fetch papers from extra venue IDs (e.g., Datasets & Benchmarks track)
+                for extra_vid in self.config.extra_venue_ids:
+                    extra_inv = f"{extra_vid}/-/Submission"
+                    logger.info("Fetching extra venue: %s", extra_vid)
+                    extra_notes = self.client.get_all_notes(
+                        invitation=extra_inv,
+                        content={"venueid": extra_vid},
+                    )
+                    logger.info("  Found %d papers from %s", len(extra_notes), extra_vid)
+                    notes.extend(extra_notes)
         except openreview.OpenReviewException as e:
             logger.error(
                 "Failed to fetch papers: %s. "
