@@ -57,6 +57,9 @@ def _scrape_separate_pages(base_url: str, pages: dict[str, str]) -> list[Paper]:
         url = f"{base_url}{path}"
         logger.info("Scraping %s from %s", selection, url)
         response = requests.get(url, timeout=30)
+        if response.status_code == 404:
+            logger.warning("Skipping %s: 404 Not Found", url)
+            continue
         response.raise_for_status()
         soup = BeautifulSoup(response.content, "html.parser")
         papers = _parse_paper_list(soup, selection)
@@ -292,11 +295,16 @@ def _scrape_anthology(url: str, selection: str) -> list[Paper]:
 
 
 def scrape_eacl_2023() -> list[Paper]:
-    return _scrape_anthology(f"{ANTHOLOGY_BASE_URL}/volumes/2023.eacl-main/", "main")
+    papers = _scrape_anthology(f"{ANTHOLOGY_BASE_URL}/volumes/2023.eacl-main/", "main")
+    papers += _scrape_anthology(f"{ANTHOLOGY_BASE_URL}/volumes/2023.findings-eacl/", "findings")
+    return papers
 
 
 def scrape_eacl_2024() -> list[Paper]:
-    return _scrape_anthology(f"{ANTHOLOGY_BASE_URL}/volumes/2024.eacl-long/", "main")
+    papers = _scrape_anthology(f"{ANTHOLOGY_BASE_URL}/volumes/2024.eacl-long/", "main")
+    papers += _scrape_anthology(f"{ANTHOLOGY_BASE_URL}/volumes/2024.eacl-short/", "main")
+    papers += _scrape_anthology(f"{ANTHOLOGY_BASE_URL}/volumes/2024.findings-eacl/", "findings")
+    return papers
 
 
 def scrape_coling_2024() -> list[Paper]:
