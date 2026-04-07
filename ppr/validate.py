@@ -2,10 +2,14 @@
 
 import logging
 import time
+from dataclasses import dataclass
+from pathlib import Path
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+OUTPUTS_DIR = Path(__file__).resolve().parent.parent / "outputs"
 
 DBLP_API_URL = "https://dblp.org/search/publ/api"
 HITS_PER_PAGE = 1000
@@ -174,3 +178,56 @@ def _count_one_key(key: str) -> int:
 
     logger.debug("DBLP count for %s: %d papers", key, count)
     return count
+
+
+@dataclass
+class ValidationResult:
+    conf_id: str
+    status: str      # PASS, FAIL, SKIP, NO_DATA
+    scraped: int = 0
+    dblp: int = 0
+    message: str = ""
+
+
+def validate_conference(
+    conf_id: str,
+    tolerance: float = 0.1,
+) -> ValidationResult:
+    """Validate a conference's scraped paper count against DBLP.
+
+    Args:
+        conf_id: Conference identifier (e.g., 'iclr_2025').
+        tolerance: Maximum allowed relative difference (default 10%).
+
+    Returns:
+        ValidationResult with status and counts.
+    """
+    if conf_id in DBLP_SOURCE_IDS:
+        return ValidationResult(conf_id, "SKIP", message="DBLP-sourced conference")
+
+    if conf_id not in DBLP_VALIDATION_KEYS:
+        return ValidationResult(conf_id, "NO_DATA", message="No DBLP mapping")
+
+    output_path = OUTPUTS_DIR / conf_id / "papers.jsonl"
+    if not output_path.exists():
+        return ValidationResult(conf_id, "NO_DATA", message="No output file")
+
+    with open(output_path, encoding="utf-8") as f:
+        scraped = sum(1 for line in f if line.strip())
+
+    dblp_count = fetch_dblp_count(DBLP_VALIDATION_KEYS[conf_id])
+
+    if dblp_count == 0:
+        return ValidationResult(
+            conf_id, "NO_DATA", scraped=scraped, dblp=0,
+            message="DBLP returned 0 (not yet indexed?)",
+        )
+
+    diff = abs(scraped - dblp_count) / dblp_count
+    if diff <= tolerance:
+        return ValidationResult(conf_id, "PASS", scraped=scraped, dblp=dblp_count)
+    else:
+        return ValidationResult(
+            conf_id, "FAIL", scraped=scraped, dblp=dblp_count,
+            message=f"Difference: {diff:.1%}",
+        )
