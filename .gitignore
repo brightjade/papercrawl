@@ -7,8 +7,12 @@ __pycache__/
 .superpowers/
 docs/superpowers/
 data/
+data.zip
 
 # Web app
 web/node_modules/
 web/dist/
 web/public/data/
+
+# Survey outputs
+outputs/
