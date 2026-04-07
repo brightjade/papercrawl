@@ -136,14 +136,14 @@ def build_trends(all_papers: dict[str, list[dict]]) -> dict:
     }
 
 
-def build_all(outputs_dir: Path, out_dir: Path) -> None:
-    """Build all static JSON files from JSONL outputs."""
+def build_all(data_dir: Path, out_dir: Path) -> None:
+    """Build all static JSON files from JSONL data."""
     out_dir.mkdir(parents=True, exist_ok=True)
 
     all_papers: dict[str, list[dict]] = {}
     manifest: list[dict] = []
 
-    for conf_dir in sorted(outputs_dir.iterdir()):
+    for conf_dir in sorted(data_dir.iterdir()):
         if not conf_dir.is_dir():
             continue
         conf_id = conf_dir.name
@@ -180,6 +180,6 @@ def build_all(outputs_dir: Path, out_dir: Path) -> None:
 
 
 if __name__ == "__main__":
-    outputs_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("outputs")
+    data_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("data")
     out_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("web/public/data")
-    build_all(outputs_dir, out_dir)
+    build_all(data_dir, out_dir)

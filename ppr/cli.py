@@ -16,7 +16,7 @@ from ppr.config import CrawlConfig
 from ppr.models import Paper
 
 CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
-OUTPUTS_DIR = Path(__file__).resolve().parent.parent / "outputs"
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,7 +31,7 @@ def _available_conferences() -> list[str]:
 
 
 def _resolve_input(conf_id: str) -> Path:
-    return OUTPUTS_DIR / conf_id / "papers.jsonl"
+    return DATA_DIR / conf_id / "papers.jsonl"
 
 
 def _read_papers_jsonl(path: Path) -> list[Paper]:
@@ -40,7 +40,7 @@ def _read_papers_jsonl(path: Path) -> list[Paper]:
 
 
 def _save_papers(papers: list[Paper], conf_id: str) -> Path:
-    save_path = OUTPUTS_DIR / conf_id / "papers.jsonl"
+    save_path = DATA_DIR / conf_id / "papers.jsonl"
     save_path.parent.mkdir(parents=True, exist_ok=True)
     with open(save_path, "w", encoding="utf-8") as f:
         for paper in papers:

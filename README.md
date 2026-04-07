@@ -80,10 +80,10 @@ uv run ppr enrich iclr_2025
 
 ## Output
 
-All output goes to `outputs/<conference_id>/`:
+All output goes to `data/<conference_id>/`:
 
 ```
-outputs/iclr_2025/
+data/iclr_2025/
   papers.jsonl                    # all accepted papers
   papers_enriched.jsonl            # enriched with Semantic Scholar metadata (after running enrich)
 ```

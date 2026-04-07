@@ -9,7 +9,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-OUTPUTS_DIR = Path(__file__).resolve().parent.parent / "outputs"
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 DBLP_API_URL = "https://dblp.org/search/publ/api"
 HITS_PER_PAGE = 1000
@@ -215,7 +215,7 @@ def validate_conference(
     if conf_id not in DBLP_VALIDATION_KEYS:
         return ValidationResult(conf_id, "NO_DATA", message="No DBLP mapping")
 
-    output_path = OUTPUTS_DIR / conf_id / "papers.jsonl"
+    output_path = DATA_DIR / conf_id / "papers.jsonl"
     if not output_path.exists():
         return ValidationResult(conf_id, "NO_DATA", message="No output file")
 
