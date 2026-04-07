@@ -1,35 +1,60 @@
 # paper-explorer
 
-Retrieve accepted paper metadata from ML/DL/NLP/Security/SE conferences. Uses the OpenReview API for ML conferences, web scraping for ACL-family/AAAI/USENIX conferences, and the DBLP API for software engineering conferences.
+Retrieve accepted paper metadata from ML/DL/NLP/CV/Robotics/Security/SE conferences. Uses the OpenReview API, web scraping, CVF Open Access, and the DBLP API.
 
-## Install
+## Getting Started
+
+### 1. Install uv
+
+[uv](https://docs.astral.sh/uv/) is a fast Python package manager used to manage dependencies.
 
 ```bash
+# macOS / Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+After installing, restart your terminal so the `uv` command is available.
+
+### 2. Clone and install dependencies
+
+```bash
+git clone https://github.com/brightjade/paper-explorer.git
+cd paper-explorer
 uv sync
 ```
 
-## Authentication
+This creates a virtual environment and installs all required packages automatically.
 
-OpenReview conferences require a free account. Sign up at https://openreview.net/signup, then:
+### 3. Set up OpenReview credentials (optional)
+
+Only needed if you want to crawl OpenReview conferences (ICLR, NeurIPS, ICML, COLM, CoRL). Other conferences are scraped from public websites and don't require authentication.
+
+1. Create a free account at https://openreview.net/signup
+2. Copy the example env file and fill in your credentials:
 
 ```bash
 cp .env.example .env
 ```
 
-Fill in your credentials in `.env`. Not needed for non-OpenReview conferences (scraped from public websites).
+3. Edit `.env` with your OpenReview username and password.
 
 ## Usage
 
 ```bash
 # Crawl one or more conferences
 uv run ppr crawl iclr_2025
-uv run ppr crawl iclr_2025 neurips_2025 emnlp_2025
+uv run ppr crawl iclr_2025 neurips_2025 icml_2025
 
-# Enrich with citation counts and abstracts (with progress bar)
+# Enrich with citation counts and abstracts
 uv run ppr enrich iclr_2025
+uv run ppr enrich iclr_2025 neurips_2025 icml_2025
 
-# Pipeline: crawl + enrich for multiple conferences
-./run.sh iclr_2025 neurips_2025 emnlp_2025 --enrich
+# Validate paper counts against DBLP
+uv run ppr validate iclr_2025
+uv run ppr validate iclr_2025 neurips_2025 --tolerance 0.15
 
 # Build static JSON for web app
 ./build.sh
@@ -37,46 +62,63 @@ uv run ppr enrich iclr_2025
 
 ## Available conferences
 
-| ID | Source | Selections |
-|---|---|---|
-| `iclr_2023` | OpenReview | oral, spotlight, poster |
-| `iclr_2024` | OpenReview | oral, spotlight, poster |
-| `iclr_2025` | OpenReview | oral, spotlight, poster |
-| `iclr_2026` | OpenReview | oral, poster |
-| `neurips_2023` | OpenReview | oral, spotlight, poster |
-| `neurips_2024` | OpenReview | oral, spotlight, poster |
-| `neurips_2025` | OpenReview | oral, spotlight, poster |
-| `icml_2023` | OpenReview | oral, poster |
-| `icml_2024` | OpenReview | oral, spotlight, poster |
-| `icml_2025` | OpenReview | oral, spotlight, poster |
-| `colm_2024` | OpenReview | main |
-| `colm_2025` | OpenReview | main |
-| `aaai_2023` | Web scrape | main |
-| `aaai_2024` | Web scrape | main |
-| `aaai_2025` | Web scrape | main |
-| `emnlp_2023` | Web scrape | main, findings, industry |
-| `emnlp_2024` | Web scrape | main, findings, industry |
-| `emnlp_2025` | Web scrape | main, findings, industry |
-| `acl_2023` | Web scrape | main, findings, industry |
-| `acl_2024` | Web scrape | main, findings |
-| `acl_2025` | Web scrape | main, findings, industry |
-| `naacl_2024` | Web scrape | main, findings, industry |
-| `naacl_2025` | Web scrape | main, findings, industry |
-| `usenix_security_2023` | Web scrape | main |
-| `usenix_security_2024` | Web scrape | main |
-| `usenix_security_2025` | Web scrape | main |
-| `icse_2023` | DBLP API | main |
-| `icse_2024` | DBLP API | main |
-| `icse_2025` | DBLP API | main |
-| `fse_2023` | DBLP API | main |
-| `fse_2024` | DBLP API | main |
-| `fse_2025` | DBLP API | main |
-| `ase_2023` | DBLP API | main |
-| `ase_2024` | DBLP API | main |
-| `ase_2025` | DBLP API | main |
-| `issta_2023` | DBLP API | main |
-| `issta_2024` | DBLP API | main |
-| `issta_2025` | DBLP API | main |
+Conference ID format: `<venue>_<year>` (e.g., `iclr_2025`). Selections indicate available paper tracks.
+
+### ML
+
+| Conference | 2026 | 2025 | 2024 | 2023 |
+|---|---|---|---|---|
+| ICLR | oral, poster | oral, spotlight, poster | oral, spotlight, poster | oral, spotlight, poster |
+| NeurIPS | | oral, spotlight, poster | oral, spotlight, poster | oral, spotlight, poster |
+| ICML | | oral, spotlight, poster | oral, spotlight, poster | oral, poster |
+| AAAI | | main | main | main |
+| IJCAI | | main | main | main |
+
+NeurIPS also includes `datasets_oral`, `datasets_spotlight`, `datasets_poster` tracks.
+
+### NLP
+
+| Conference | 2025 | 2024 | 2023 |
+|---|---|---|---|
+| ACL | main, findings, industry | main, findings | main, findings, industry |
+| EMNLP | main, findings, industry | main, findings, industry | main, findings, industry |
+| NAACL | main, findings, industry | main, findings, industry | |
+| COLM | main | main | |
+| EACL | | main, findings | main, findings |
+| COLING | main | main | |
+
+### CV (CVF / ECVA)
+
+| Conference | 2026 | 2025 | 2024 | 2023 |
+|---|---|---|---|---|
+| CVPR | | main | main | main |
+| ICCV | | main | | main |
+| ECCV | | | main | |
+| WACV | main | main | main | main |
+
+### Robotics
+
+| Conference | 2025 | 2024 | 2023 |
+|---|---|---|---|
+| CoRL | oral, poster | main | oral, poster |
+| ICRA | main | main | main |
+| IROS | main | main | main |
+| RSS | main | main | main |
+
+### Security
+
+| Conference | 2025 | 2024 | 2023 |
+|---|---|---|---|
+| USENIX Security | main | main | main |
+
+### Software Engineering (DBLP)
+
+| Conference | 2025 | 2024 | 2023 |
+|---|---|---|---|
+| ICSE | main | main | main |
+| FSE | main | main | main |
+| ASE | main | main | main |
+| ISSTA | main | main | main |
 
 ## Output
 
