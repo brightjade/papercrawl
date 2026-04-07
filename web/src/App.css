@@ -137,3 +137,12 @@ a:hover {
   font-size: 1.1rem;
   margin-bottom: 2rem;
 }
+
+.app-footer {
+  border-top: 1px solid var(--border);
+  margin-top: 3rem;
+  padding: 1.5rem 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}

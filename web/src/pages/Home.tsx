@@ -3,24 +3,35 @@ import { useManifest } from "../hooks/useManifest";
 import { ConferenceCard } from "../components/ConferenceCard";
 import "./Home.css";
 
-type Category = "ML" | "NLP" | "SE" | "Others";
+type Category = "ML" | "NLP" | "CV" | "Robotics" | "SE" | "Others";
 
 const VENUE_CATEGORIES: Record<string, Category> = {
   ICLR: "ML",
   NeurIPS: "ML",
   ICML: "ML",
-  COLM: "NLP",
   AAAI: "ML",
+  IJCAI: "ML",
+  COLM: "NLP",
   EMNLP: "NLP",
   ACL: "NLP",
   NAACL: "NLP",
+  EACL: "NLP",
+  COLING: "NLP",
+  CVPR: "CV",
+  ICCV: "CV",
+  ECCV: "CV",
+  WACV: "CV",
+  ICRA: "Robotics",
+  IROS: "Robotics",
+  RSS: "Robotics",
+  CoRL: "Robotics",
   ICSE: "SE",
   FSE: "SE",
   ASE: "SE",
   ISSTA: "SE",
 };
 
-const ALL_CATEGORIES: Category[] = ["ML", "NLP", "SE", "Others"];
+const ALL_CATEGORIES: Category[] = ["ML", "NLP", "CV", "Robotics", "SE", "Others"];
 
 function getCategory(venue: string): Category {
   return VENUE_CATEGORIES[venue] ?? "Others";

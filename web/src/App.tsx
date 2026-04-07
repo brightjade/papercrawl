@@ -32,6 +32,9 @@ export default function App() {
           <Route path="/author/:name" element={<Author />} />
           <Route path="/trends" element={<Trends />} />
         </Routes>
+        <footer className="app-footer">
+          Made with ♥ by <a href="https://brightjade.github.io/" target="_blank" rel="noopener noreferrer">Minseok Choi</a>
+        </footer>
       </div>
     </BrowserRouter>
   );
