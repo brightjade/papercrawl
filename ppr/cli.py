@@ -95,6 +95,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max concurrent requests (default: 1, matching Semantic Scholar rate limit).",
     )
 
+    # validate
+    validate_parser = subparsers.add_parser(
+        "validate", help="Cross-reference paper counts against DBLP (e.g., ppr validate iclr_2025)"
+    )
+    validate_parser.add_argument(
+        "conferences", nargs="+",
+        help="Conference IDs to validate.",
+    )
+    validate_parser.add_argument(
+        "--tolerance", type=float, default=0.1,
+        help="Maximum allowed relative difference (default: 0.1 = 10%%).",
+    )
+
     return parser
 
 
@@ -198,6 +211,29 @@ def cmd_enrich(args: argparse.Namespace) -> None:
         _enrich_one(conf_id, fetcher)
 
 
+def cmd_validate(args: argparse.Namespace) -> None:
+    from ppr.validate import validate_conference
+
+    results = []
+    for conf_id in args.conferences:
+        logger.info("Validating %s...", conf_id)
+        result = validate_conference(conf_id, tolerance=args.tolerance)
+        results.append(result)
+
+    # Print results table
+    print(f"\n{'Conference':<28} {'Scraped':>8} {'DBLP':>8} {'Status':<10} {'Message'}")
+    print("-" * 80)
+    for r in results:
+        scraped_str = str(r.scraped) if r.scraped else "-"
+        dblp_str = str(r.dblp) if r.dblp else "-"
+        print(f"{r.conf_id:<28} {scraped_str:>8} {dblp_str:>8} {r.status:<10} {r.message}")
+
+    failures = [r for r in results if r.status == "FAIL"]
+    if failures:
+        print(f"\n{len(failures)} conference(s) FAILED validation.")
+        raise SystemExit(1)
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -205,6 +241,7 @@ def main() -> None:
     commands = {
         "crawl": cmd_crawl,
         "enrich": cmd_enrich,
+        "validate": cmd_validate,
     }
 
     if args.command in commands:
