@@ -223,7 +223,7 @@ export function ImpactTab({ trends, selectedYear }: ImpactTabProps) {
                   tick={{ fontSize: 13, fontWeight: 600 }}
                 />
                 <Tooltip
-                  formatter={(value: number) => [value.toLocaleString(), "Median citations"]}
+                  formatter={(value: any) => [Number(value).toLocaleString(), "Median citations"]}
                   contentStyle={{
                     background: "var(--bg-card)",
                     border: "1px solid var(--border)",
@@ -318,8 +318,8 @@ export function ImpactTab({ trends, selectedYear }: ImpactTabProps) {
                   tick={{ fontSize: 13, fontWeight: 600 }}
                 />
                 <Tooltip
-                  formatter={(value: number) => [
-                    `${value.toFixed(2)}%`,
+                  formatter={(value: any) => [
+                    `${Number(value).toFixed(2)}%`,
                     "Influential ratio",
                   ]}
                   contentStyle={{

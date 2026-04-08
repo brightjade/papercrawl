@@ -207,7 +207,7 @@ export function CompositionTab({
                   borderRadius: "var(--radius)",
                   fontSize: "0.8rem",
                 }}
-                formatter={(value: number) => value.toLocaleString()}
+                formatter={(value: any) => Number(value).toLocaleString()}
               />
               <Legend />
               {displayedVenues.map((venue) => (
@@ -236,8 +236,8 @@ export function CompositionTab({
               content={<TreemapContent />}
             >
               <Tooltip
-                formatter={(value: number, _: string, props: any) => [
-                  value.toLocaleString(),
+                formatter={(value: any, _: any, props: any) => [
+                  Number(value).toLocaleString(),
                   props.payload.name,
                 ]}
                 contentStyle={{
@@ -277,7 +277,7 @@ export function CompositionTab({
                   tick={{ fontSize: 13, fontWeight: 600 }}
                 />
                 <Tooltip
-                  formatter={(value: number) => [`${value.toFixed(1)}%`, "Growth"]}
+                  formatter={(value: any) => [`${Number(value).toFixed(1)}%`, "Growth"]}
                   contentStyle={{
                     background: "var(--bg-card)",
                     border: "1px solid var(--border)",

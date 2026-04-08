@@ -22,12 +22,10 @@ interface OverviewTabProps {
 function RankingChart({
   title,
   data,
-  selectedYear,
   growth,
 }: {
   title: string;
   data: Record<string, number>;
-  selectedYear: string;
   growth?: Record<string, number>;
 }) {
   const chartData = useMemo(() => {
@@ -64,11 +62,11 @@ function RankingChart({
               tick={{ fontSize: 13, fontWeight: 600 }}
             />
             <Tooltip
-              formatter={(value: number, _name: string, props: any) => {
+              formatter={(value: any, _name: any, props: any) => {
                 const g = props.payload.growth;
                 const growthStr =
                   g !== undefined ? ` (${g > 0 ? "+" : ""}${g}%)` : "";
-                return [`${value.toLocaleString()}${growthStr}`, title];
+                return [`${Number(value).toLocaleString()}${growthStr}`, title];
               }}
               contentStyle={{
                 background: "var(--bg-card)",
@@ -115,13 +113,11 @@ export function OverviewTab({ trends, selectedYear, years }: OverviewTabProps) {
         <RankingChart
           title="Papers per Venue"
           data={venueCounts}
-          selectedYear={selectedYear}
           growth={growth}
         />
         <RankingChart
           title="Total Citations per Venue"
           data={citationCounts}
-          selectedYear={selectedYear}
         />
       </div>
 
@@ -149,11 +145,11 @@ export function OverviewTab({ trends, selectedYear, years }: OverviewTabProps) {
                     dot={false}
                   />
                   <Tooltip
-                    formatter={(value: number) => [
-                      value.toLocaleString(),
+                    formatter={(value: any) => [
+                      Number(value).toLocaleString(),
                       "Papers",
                     ]}
-                    labelFormatter={(label: string) => label}
+                    labelFormatter={(label: any) => String(label)}
                     contentStyle={{
                       background: "var(--bg-card)",
                       border: "1px solid var(--border)",

@@ -180,8 +180,8 @@ export function TopicsTab({ trends, selectedYear, years }: TopicsTabProps) {
                   tick={{ fontSize: 12 }}
                 />
                 <Tooltip
-                  formatter={(value: number) => [
-                    value.toLocaleString(),
+                  formatter={(value: any) => [
+                    Number(value).toLocaleString(),
                     "Occurrences",
                   ]}
                   contentStyle={{
@@ -279,7 +279,7 @@ export function TopicsTab({ trends, selectedYear, years }: TopicsTabProps) {
                     borderRadius: "var(--radius)",
                     fontSize: "0.8rem",
                   }}
-                  formatter={(value: number) => value.toLocaleString()}
+                  formatter={(value: any) => Number(value).toLocaleString()}
                 />
                 <Legend />
                 {Array.from(activeTrends).map((ngram) => {
