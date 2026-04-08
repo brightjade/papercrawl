@@ -2,9 +2,12 @@
 
 import json
 import shutil
+import statistics
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
+
+from scripts.ngrams import build_ngram_data
 
 VENUE_NAMES = {
     "iclr": "ICLR",
@@ -119,20 +122,137 @@ def build_author_index(all_papers: dict[str, list[dict]]) -> list[dict]:
 
 
 def build_trends(all_papers: dict[str, list[dict]]) -> dict:
-    """Build venue paper-count and citation-count trend data."""
+    """Build comprehensive trend data: overview, topics, impact, composition."""
     venue_counts_by_year: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     citation_counts_by_year: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    citation_lists_by_year: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
+    influential_by_year: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    track_breakdown_by_year: dict[str, dict[str, Counter]] = defaultdict(lambda: defaultdict(Counter))
+    top_papers_by_year: dict[str, list[dict]] = defaultdict(list)
 
     for conf_id, papers in all_papers.items():
         venue, year = parse_conference_id(conf_id)
         year_str = str(year)
         venue_counts_by_year[year_str][venue] += len(papers)
+
         for paper in papers:
-            citation_counts_by_year[year_str][venue] += paper.get("citation_count", 0)
+            cite = paper.get("citation_count", 0)
+            citation_counts_by_year[year_str][venue] += cite
+            if paper.get("citation_count") is not None:
+                citation_lists_by_year[year_str][venue].append(cite)
+            influential_by_year[year_str][venue] += paper.get("influential_citation_count") or 0
+
+            selection = paper.get("selection", "")
+            if selection:
+                track_breakdown_by_year[year_str][venue][selection] += 1
+
+            if paper.get("citation_count") is not None:
+                top_papers_by_year[year_str].append({
+                    "title": paper["title"],
+                    "venue": venue,
+                    "citation_count": paper["citation_count"],
+                    "influential_citation_count": paper.get("influential_citation_count") or 0,
+                    "conference_id": conf_id,
+                })
+
+    years_sorted = sorted(venue_counts_by_year.keys())
+
+    # --- Overview ---
+    growth_pct_by_year = {}
+    for i in range(1, len(years_sorted)):
+        prev_year, curr_year = years_sorted[i - 1], years_sorted[i]
+        growth = {}
+        for venue, count in venue_counts_by_year[curr_year].items():
+            prev_count = venue_counts_by_year[prev_year].get(venue)
+            if prev_count and prev_count > 0:
+                growth[venue] = round((count - prev_count) / prev_count * 100, 1)
+        if growth:
+            growth_pct_by_year[curr_year] = growth
+
+    overview = {
+        "venue_counts_by_year": {y: dict(v) for y, v in venue_counts_by_year.items()},
+        "citation_counts_by_year": {y: dict(v) for y, v in citation_counts_by_year.items()},
+        "growth_pct_by_year": growth_pct_by_year,
+    }
+
+    # --- Topics ---
+    topics = build_ngram_data(all_papers, parse_conference_id)
+
+    # --- Impact ---
+    citation_stats_by_year = {}
+    avg_citations_by_year = {}
+    influential_ratio_by_year = {}
+
+    for year_str in years_sorted:
+        stats = {}
+        avg = {}
+        ratios = {}
+        for venue, cites in citation_lists_by_year[year_str].items():
+            if len(cites) < 2:
+                continue
+            cites_sorted = sorted(cites)
+            q = statistics.quantiles(cites_sorted, n=4)
+            q1, median, q3 = q[0], q[1], q[2]
+            iqr = q3 - q1
+            lower_fence = q1 - 1.5 * iqr
+            upper_fence = q3 + 1.5 * iqr
+            outliers = [c for c in cites_sorted if c > upper_fence][:20]
+            stats[venue] = {
+                "min": cites_sorted[0],
+                "q1": q1,
+                "median": median,
+                "q3": q3,
+                "max": cites_sorted[-1],
+                "outliers": outliers,
+            }
+            avg[venue] = median
+
+        for venue in citation_counts_by_year[year_str]:
+            total = citation_counts_by_year[year_str][venue]
+            inf = influential_by_year[year_str].get(venue, 0)
+            if total > 0:
+                ratios[venue] = round(inf / total, 4)
+
+        if stats:
+            citation_stats_by_year[year_str] = stats
+        if avg:
+            avg_citations_by_year[year_str] = avg
+        if ratios:
+            influential_ratio_by_year[year_str] = ratios
+
+    # Sort top papers per year, take top 20
+    top_papers_final = {}
+    for year_str, papers_list in top_papers_by_year.items():
+        papers_list.sort(key=lambda p: p["citation_count"], reverse=True)
+        top_papers_final[year_str] = papers_list[:20]
+
+    impact = {
+        "citation_stats_by_year": citation_stats_by_year,
+        "avg_citations_by_year": avg_citations_by_year,
+        "top_papers_by_year": top_papers_final,
+        "influential_ratio_by_year": influential_ratio_by_year,
+    }
+
+    # --- Composition ---
+    venue_counts_all_years: dict[str, dict[str, int]] = defaultdict(dict)
+    for year_str, venues in venue_counts_by_year.items():
+        for venue, count in venues.items():
+            venue_counts_all_years[venue][year_str] = count
+
+    composition = {
+        "track_breakdown_by_year": {
+            y: {v: dict(c) for v, c in venues.items()}
+            for y, venues in track_breakdown_by_year.items()
+        },
+        "venue_counts_all_years": dict(venue_counts_all_years),
+        "growth_rates_by_year": growth_pct_by_year,
+    }
 
     return {
-        "venue_counts_by_year": dict(venue_counts_by_year),
-        "citation_counts_by_year": dict(citation_counts_by_year),
+        "overview": overview,
+        "topics": topics,
+        "impact": impact,
+        "composition": composition,
     }
 
 

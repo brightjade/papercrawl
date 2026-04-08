@@ -181,18 +181,86 @@ class TestBuildAuthorIndex:
 
 
 class TestBuildTrends:
-    def test_venue_and_citation_counts(self, sample_outputs):
+    def test_overview_section(self, sample_outputs):
         all_papers = {
             "iclr_2025": load_papers(sample_outputs / "iclr_2025"),
             "acl_2025": load_papers(sample_outputs / "acl_2025"),
         }
         trends = build_trends(all_papers)
-        assert trends["venue_counts_by_year"]["2025"]["ICLR"] == 3
-        assert trends["venue_counts_by_year"]["2025"]["ACL"] == 1
-        # ICLR papers: 100 + 50 + 10 = 160
-        assert trends["citation_counts_by_year"]["2025"]["ICLR"] == 160
-        # ACL paper has no citation_count
-        assert trends["citation_counts_by_year"]["2025"]["ACL"] == 0
+        overview = trends["overview"]
+        assert overview["venue_counts_by_year"]["2025"]["ICLR"] == 3
+        assert overview["venue_counts_by_year"]["2025"]["ACL"] == 1
+        assert overview["citation_counts_by_year"]["2025"]["ICLR"] == 160
+        assert overview["citation_counts_by_year"]["2025"]["ACL"] == 0
+
+    def test_top_level_keys(self, sample_outputs):
+        all_papers = {
+            "iclr_2025": load_papers(sample_outputs / "iclr_2025"),
+        }
+        trends = build_trends(all_papers)
+        assert "overview" in trends
+        assert "topics" in trends
+        assert "impact" in trends
+        assert "composition" in trends
+
+    def test_impact_citation_stats(self, sample_outputs):
+        all_papers = {
+            "iclr_2025": load_papers(sample_outputs / "iclr_2025"),
+        }
+        trends = build_trends(all_papers)
+        stats = trends["impact"]["citation_stats_by_year"]["2025"]["ICLR"]
+        assert stats["min"] == 10
+        assert stats["max"] == 100
+        assert "median" in stats
+        assert "q1" in stats
+        assert "q3" in stats
+
+    def test_impact_top_papers(self, sample_outputs):
+        all_papers = {
+            "iclr_2025": load_papers(sample_outputs / "iclr_2025"),
+        }
+        trends = build_trends(all_papers)
+        top = trends["impact"]["top_papers_by_year"]["2025"]
+        assert len(top) <= 20
+        assert top[0]["citation_count"] == 100
+        assert top[0]["venue"] == "ICLR"
+        assert top[0]["conference_id"] == "iclr_2025"
+
+    def test_composition_track_breakdown(self, sample_outputs):
+        all_papers = {
+            "iclr_2025": load_papers(sample_outputs / "iclr_2025"),
+        }
+        trends = build_trends(all_papers)
+        tracks = trends["composition"]["track_breakdown_by_year"]["2025"]["ICLR"]
+        assert tracks["oral"] == 1
+        assert tracks["poster"] == 2
+
+    def test_composition_venue_counts_all_years(self, sample_outputs):
+        all_papers = {
+            "iclr_2025": load_papers(sample_outputs / "iclr_2025"),
+        }
+        trends = build_trends(all_papers)
+        all_years = trends["composition"]["venue_counts_all_years"]
+        assert all_years["ICLR"]["2025"] == 3
+
+    def test_growth_pct_requires_two_years(self, sample_outputs):
+        """Growth percentage requires at least two years of data."""
+        all_papers = {
+            "iclr_2025": load_papers(sample_outputs / "iclr_2025"),
+        }
+        trends = build_trends(all_papers)
+        assert trends["overview"]["growth_pct_by_year"] == {}
+
+    def test_topics_section_present(self, sample_outputs):
+        all_papers = {
+            "iclr_2025": load_papers(sample_outputs / "iclr_2025"),
+        }
+        trends = build_trends(all_papers)
+        topics = trends["topics"]
+        assert "top_ngrams_by_year" in topics
+        assert "rising_falling_by_year" in topics
+        assert "ngram_trends" in topics
+        assert "venue_ngram_matrix_by_year" in topics
 
 
 class TestBuildAll:
