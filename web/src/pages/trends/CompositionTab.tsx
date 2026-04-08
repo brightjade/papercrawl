@@ -21,6 +21,11 @@ const TRACK_COLORS: Record<string, string> = {
   spotlight: "#f59e0b",
   poster: "#3b82f6",
   main: "#6366f1",
+  findings: "#14b8a6",
+  industry: "#e11d48",
+  datasets_oral: "#15803d",
+  datasets_spotlight: "#16a34a",
+  datasets_poster: "#22c55e",
 };
 
 function getTrackColor(track: string): string {
@@ -208,6 +213,7 @@ export function CompositionTab({
                   fontSize: "0.8rem",
                 }}
                 formatter={(value: any) => Number(value).toLocaleString()}
+                itemSorter={(item: any) => -(item.value ?? 0)}
               />
               <Legend />
               {displayedVenues.map((venue) => (
