@@ -103,7 +103,9 @@ export function OverviewTab({ trends, selectedYear, years }: OverviewTabProps) {
     );
     return venues.map((venue) => ({
       venue,
-      data: years.map((y) => ({ year: y, count: allYears[venue]?.[y] ?? 0 })),
+      data: years
+        .filter((y) => (allYears[venue]?.[y] ?? 0) > 0)
+        .map((y) => ({ year: y, count: allYears[venue]![y] })),
     }));
   }, [trends, venueCounts, years]);
 
