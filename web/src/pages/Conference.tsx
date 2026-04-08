@@ -84,7 +84,7 @@ export function Conference() {
             value={trackFilter}
             onChange={(e) => setTrackFilter(e.target.value)}
           >
-            <option value="all">All tracks</option>
+            <option value="all">All types</option>
             {tracks.map((t) => (
               <option key={t} value={t}>{t}</option>
             ))}
@@ -103,7 +103,7 @@ export function Conference() {
       <div className="paper-table-header">
         <span className="col-rank">#</span>
         <span className="col-title">Paper</span>
-        <span className="col-track">Track</span>
+        <span className="col-track">Type</span>
         <span className="col-citations">Citations</span>
       </div>
 
