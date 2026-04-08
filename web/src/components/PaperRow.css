@@ -9,7 +9,7 @@
 
 .paper-row-main {
   display: grid;
-  grid-template-columns: 3rem 1fr auto auto;
+  grid-template-columns: 3rem 1fr auto 5rem;
   align-items: center;
   gap: 1rem;
   padding: 0.75rem 0;
