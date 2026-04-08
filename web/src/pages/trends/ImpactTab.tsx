@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   BarChart,
   Bar,
@@ -23,6 +23,9 @@ function BoxPlotChart({
 }: {
   stats: Record<string, CitationStats>;
 }) {
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [mouse, setMouse] = useState({ x: 0, y: 0 });
+
   const venues = useMemo(
     () =>
       Object.entries(stats)
@@ -42,20 +45,35 @@ function BoxPlotChart({
   const plotWidth = chartWidth - marginLeft - marginRight;
   const plotHeight = chartHeight - marginTop - marginBottom;
 
-  const maxVal = Math.max(...venues.map((v) => stats[v].max));
+  // Scale Y-axis to upper fences so outliers don't flatten the boxes
+  const maxVal = Math.max(
+    ...venues.map((v) => {
+      const s = stats[v];
+      const iqr = s.q3 - s.q1;
+      return s.q3 + 1.5 * iqr;
+    })
+  );
+  const yMax = maxVal * 1.1; // 10% padding
   const scale = (val: number) =>
-    plotHeight - (val / maxVal) * plotHeight + marginTop;
+    plotHeight - (Math.min(val, yMax) / yMax) * plotHeight + marginTop;
   const barWidth = Math.min(40, plotWidth / venues.length - 8);
 
   // Y-axis ticks
   const tickCount = 5;
-  const tickStep = maxVal / tickCount;
+  const tickStep = yMax / tickCount;
   const ticks = Array.from({ length: tickCount + 1 }, (_, i) =>
     Math.round(i * tickStep)
   );
 
   return (
-    <div className="box-plot-container">
+    <div
+      className="box-plot-container"
+      style={{ position: "relative" }}
+      onMouseMove={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        setMouse({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      }}
+    >
       <svg width={chartWidth} height={chartHeight}>
         {/* Y-axis */}
         {ticks.map((tick) => (
@@ -87,7 +105,20 @@ function BoxPlotChart({
           const halfBar = barWidth / 2;
 
           return (
-            <g key={venue}>
+            <g
+              key={venue}
+              onMouseEnter={() => setHovered(venue)}
+              onMouseLeave={() => setHovered(null)}
+              style={{ cursor: "pointer" }}
+            >
+              {/* Hit area for hover */}
+              <rect
+                x={cx - halfBar - 4}
+                y={marginTop}
+                width={barWidth + 8}
+                height={plotHeight}
+                fill="transparent"
+              />
               {/* Whisker line (min to max, excluding outliers above fence) */}
               <line
                 x1={cx}
@@ -104,7 +135,7 @@ function BoxPlotChart({
                 width={barWidth}
                 height={Math.max(1, scale(s.q1) - scale(s.q3))}
                 fill={VENUE_COLORS[venue] ?? "#888"}
-                opacity={0.3}
+                opacity={hovered === venue ? 0.5 : 0.3}
                 stroke={VENUE_COLORS[venue] ?? "#888"}
                 strokeWidth={1.5}
                 rx={2}
@@ -154,6 +185,37 @@ function BoxPlotChart({
           );
         })}
       </svg>
+
+      {/* Tooltip */}
+      {hovered && (
+        <div
+          className="box-plot-tooltip"
+          style={{
+            position: "absolute",
+            left: mouse.x + 12,
+            top: mouse.y - 120,
+            background: "var(--bg-card)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius)",
+            padding: "0.5rem 0.75rem",
+            fontSize: "0.8rem",
+            lineHeight: 1.6,
+            pointerEvents: "none",
+            zIndex: 10,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 2, color: VENUE_COLORS[hovered] ?? "#888" }}>
+            {hovered}
+          </div>
+          <div>Max: {formatNumber(stats[hovered].max)}</div>
+          <div>Q3: {formatNumber(stats[hovered].q3)}</div>
+          <div>Median: {formatNumber(stats[hovered].median)}</div>
+          <div>Q1: {formatNumber(stats[hovered].q1)}</div>
+          <div>Min: {formatNumber(stats[hovered].min)}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -257,7 +319,19 @@ export function ImpactTab({ trends, selectedYear }: ImpactTabProps) {
                   <th>Paper</th>
                   <th>Venue</th>
                   <th style={{ textAlign: "right" }}>Citations</th>
-                  <th style={{ textAlign: "right" }}>Influential</th>
+                  <th style={{ textAlign: "right" }}>
+                    <span className="header-with-tooltip">
+                      Influential
+                      <span className="info-tooltip">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style={{ verticalAlign: "-2px", marginLeft: "4px", opacity: 0.5 }}>
+                          <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0zm0 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM8 5a.75.75 0 1 1 0 1.5A.75.75 0 0 1 8 5zm-1 3h1.25v3.25H9.5V12.5h-2.5V11h1.25V9.25H7.25V8z"/>
+                        </svg>
+                        <span className="info-tooltip-text">
+                          Citations where the cited work significantly impacted the citing paper, determined by Semantic Scholar.
+                        </span>
+                      </span>
+                    </span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -297,6 +371,18 @@ export function ImpactTab({ trends, selectedYear }: ImpactTabProps) {
       {ratioData.length > 0 && (
         <div className="trends-section">
           <h3>Influential Citation Ratio</h3>
+          <p className="section-description">
+            An influential citation is one where the cited work significantly impacted the citing paper,
+            as determined by{" "}
+            <a
+              href="https://www.semanticscholar.org/faq#influential-citations"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Semantic Scholar's algorithm
+            </a>
+            . This ratio shows the percentage of each venue's citations that are influential.
+          </p>
           <div className="chart-container">
             <ResponsiveContainer
               width="100%"
