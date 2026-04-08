@@ -103,6 +103,7 @@ a:hover {
   color: var(--text-primary);
 }
 
+.icon-link,
 .theme-toggle {
   background: none;
   border: 1px solid var(--border);
@@ -112,8 +113,11 @@ a:hover {
   color: var(--text-secondary);
   font-size: 1rem;
   transition: border-color 0.15s, color 0.15s;
+  display: inline-flex;
+  align-items: center;
 }
 
+.icon-link:hover,
 .theme-toggle:hover {
   border-color: var(--text-muted);
   color: var(--text-primary);
