@@ -1,18 +1,44 @@
-.trends-section {
-  margin-bottom: 3rem;
-}
-
-.trends-section h3 {
-  font-size: 1.15rem;
-}
-
-.trends-section-header {
+/* Controls bar */
+.trends-controls {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1rem;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
+/* Main tabs */
+.trends-tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.trends-tab {
+  padding: 0.45rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.trends-tab:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.trends-tab.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* Year tabs */
 .year-tabs {
   display: flex;
   gap: 0.25rem;
@@ -42,10 +68,285 @@
   border-color: var(--accent);
 }
 
+/* Section layout */
+.trends-section {
+  margin-bottom: 2.5rem;
+}
+
+.trends-section h3 {
+  font-size: 1.15rem;
+  margin-bottom: 1rem;
+}
+
+.trends-charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 2.5rem;
+}
+
+/* Chart container */
 .chart-container {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1.5rem;
   box-shadow: var(--shadow);
+}
+
+/* Sparklines */
+.sparkline-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+}
+
+.sparkline-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  box-shadow: var(--shadow);
+}
+
+.sparkline-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.sparkline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Placeholder for unbuilt tabs */
+.trends-placeholder {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+}
+
+/* Heatmap */
+.heatmap-container {
+  overflow-x: auto;
+}
+
+.heatmap-table {
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  width: 100%;
+}
+
+.heatmap-table th,
+.heatmap-table td {
+  padding: 0.4rem 0.6rem;
+  text-align: center;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.heatmap-table th {
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+}
+
+.heatmap-table td.ngram-label {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--bg-card);
+}
+
+/* Rising / Falling lists */
+.rising-falling-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+.rising-falling-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.rising-falling-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.rising-falling-list li:last-child {
+  border-bottom: none;
+}
+
+.delta-positive {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.delta-negative {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+/* Topic toggle controls */
+.topic-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.topic-toggle {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.topic-toggle.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* Leaderboard table */
+.leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.leaderboard-table th,
+.leaderboard-table td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.leaderboard-table th {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.leaderboard-table td {
+  color: var(--text-primary);
+}
+
+.leaderboard-table .paper-title {
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leaderboard-table .paper-title a {
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.leaderboard-table .paper-title a:hover {
+  color: var(--accent);
+}
+
+.leaderboard-table td.number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Box plot */
+.box-plot-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  box-shadow: var(--shadow);
+  overflow-x: auto;
+}
+
+/* Word cloud */
+.wordcloud-container {
+  display: flex;
+  justify-content: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  box-shadow: var(--shadow);
+}
+
+/* Growth bar coloring */
+.growth-positive {
+  fill: #16a34a;
+}
+
+.growth-negative {
+  fill: #dc2626;
+}
+
+/* Treemap labels */
+.treemap-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  fill: #fff;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .trends-charts-row {
+    grid-template-columns: 1fr;
+  }
+
+  .sparkline-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .rising-falling-row {
+    grid-template-columns: 1fr;
+  }
+
+  .trends-controls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .trends-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .heatmap-container {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .sparkline-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .leaderboard-table {
+    display: block;
+    overflow-x: auto;
+  }
 }
