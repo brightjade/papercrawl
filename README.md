@@ -1,5 +1,11 @@
 # paper-explorer
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-3776ab?logo=python&logoColor=white)](https://www.python.org/)
+[![GitHub stars](https://img.shields.io/github/stars/brightjade/paper-explorer)](https://github.com/brightjade/paper-explorer/stargazers)
+[![GitHub last commit](https://img.shields.io/github/last-commit/brightjade/paper-explorer)](https://github.com/brightjade/paper-explorer/commits/main)
+[![Sponsor](https://img.shields.io/badge/sponsor-brightjade-ea4aaa?logo=github-sponsors)](https://github.com/sponsors/brightjade)
+
 Retrieve accepted paper metadata from ML/DL/NLP/CV/Robotics/Security/SE conferences. Uses the OpenReview API, web scraping, CVF Open Access, and the DBLP API.
 
 ## Getting Started
@@ -36,11 +42,7 @@ The paper data is hosted as a GitHub Release asset. Run the setup script to down
 ./setup.sh
 ```
 
-This downloads the latest data snapshot (~60 MB) and extracts it to `data/`. You can also download a specific release:
-
-```bash
-./setup.sh data-2025-04-07
-```
+This downloads the latest data snapshot (~60 MB) and extracts it to `data/`.
 
 > **Note:** Requires either the [GitHub CLI](https://cli.github.com/) (`gh`) or `curl`. If you don't have `gh`, the script falls back to `curl` automatically.
 
@@ -135,24 +137,6 @@ NeurIPS also includes `datasets_oral`, `datasets_spotlight`, `datasets_poster` t
 | FSE | main | main | main |
 | ASE | main | main | main |
 | ISSTA | main | main | main |
-
-## Output
-
-All output goes to `data/<conference_id>/`:
-
-```
-data/iclr_2025/
-  papers.jsonl                    # all accepted papers
-  papers_enriched.jsonl            # enriched with Semantic Scholar metadata (after running enrich)
-```
-
-OpenReview papers include title, authors, selection, keywords, abstract, PDF link, and forum ID. Web-scraped papers include title, authors, and selection. DBLP papers include title, authors, and DOI link. The `enrich` command adds citation counts and abstracts (from Semantic Scholar) to all papers. Existing abstracts (e.g., from OpenReview) are preserved. Enrichment is resumable — if interrupted, re-running `ppr enrich` picks up where it left off.
-
-## Testing
-
-```bash
-uv run pytest tests/
-```
 
 ## Literature Survey (Claude Code skill)
 
