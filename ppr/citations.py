@@ -40,7 +40,7 @@ class CitationFetcher:
             "query": title,
             "fields": "title,citationCount,abstract,influentialCitationCount,referenceCount,tldr,publicationDate,fieldsOfStudy,openAccessPdf,externalIds",
         }
-        max_retries = 5
+        max_retries = 8
 
         sem = semaphore or asyncio.Semaphore(self._max_concurrency)
         async with sem:
@@ -50,7 +50,10 @@ class CitationFetcher:
                     response = await client.get(
                         SEMANTIC_SCHOLAR_URL, params=params, headers=self.headers
                     )
-                    if response.status_code == 429:
+                    # Semantic Scholar's keyless API returns 403 (not 429) when its
+                    # shared anonymous rate-limit pool is saturated. This is transient
+                    # and IP-independent, so back off and retry rather than giving up.
+                    if response.status_code in (429, 403):
                         wait = (2 ** attempt) + random.uniform(0, 1)
                         await asyncio.sleep(wait)
                         continue
