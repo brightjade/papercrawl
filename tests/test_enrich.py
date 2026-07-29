@@ -246,3 +246,313 @@ class TestWriteEnriched:
         path = tmp_path / "papers_enriched.jsonl"
         write_enriched([_paper(citation_count=1)], path)
         assert list(tmp_path.iterdir()) == [path]
+
+
+import httpx
+import respx
+
+from ppr.enrich import (
+    EnrichResult,
+    S2_VENUE_NAMES,
+    corpus_id_of,
+    doi_id_of,
+    enrich_all,
+    enrich_conference,
+    route_papers,
+)
+from ppr.s2_client import BATCH_URL, BULK_URL, MATCH_URL, S2Client
+
+
+def _write_jsonl(path, papers):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(p.to_json() + "\n" for p in papers))
+
+
+def _conf(tmp_path, conf_id, raw, enriched=None):
+    _write_jsonl(tmp_path / conf_id / "papers.jsonl", raw)
+    if enriched is not None:
+        _write_jsonl(tmp_path / conf_id / "papers_enriched.jsonl", enriched)
+    return tmp_path
+
+
+class TestIdExtraction:
+    def test_corpus_id(self):
+        assert corpus_id_of(_paper(external_ids={"CorpusId": 42})) == "CorpusId:42"
+
+    def test_no_corpus_id(self):
+        assert corpus_id_of(_paper()) is None
+
+    def test_doi_from_link(self):
+        p = _paper(link="https://doi.org/10.1109/ICRA55743.2025.11127781")
+        assert doi_id_of(p) == "DOI:10.1109/ICRA55743.2025.11127781"
+
+    def test_non_doi_link(self):
+        assert doi_id_of(_paper(link="https://openreview.net/pdf?id=abc")) is None
+
+
+class TestRoutePapers:
+    def test_known_corpus_id_goes_to_refresh(self):
+        raw = [_paper(title="A")]
+        prior = {"a": _paper(title="A", external_ids={"CorpusId": 1}, citation_count=5)}
+        refresh, doi, title, kept = route_papers(
+            raw, prior, full=False, retry_unmatched=False
+        )
+        assert [p.title for p in refresh] == ["A"]
+        assert (doi, title, kept) == ([], [], [])
+        assert raw[0].citation_count == 5  # carried over
+
+    def test_new_paper_goes_cold(self):
+        raw = [_paper(title="New", link="https://openreview.net/pdf?id=z")]
+        refresh, doi, title, kept = route_papers(
+            raw, {}, full=False, retry_unmatched=False
+        )
+        assert [p.title for p in title] == ["New"]
+        assert (refresh, doi, kept) == ([], [], [])
+
+    def test_new_paper_with_doi_goes_id_cold(self):
+        raw = [_paper(title="New", link="https://doi.org/10.1/x")]
+        refresh, doi, title, kept = route_papers(
+            raw, {}, full=False, retry_unmatched=False
+        )
+        assert [p.title for p in doi] == ["New"]
+        assert title == []
+
+    def test_previously_not_found_is_kept_by_default(self):
+        raw = [_paper(title="A")]
+        prior = {"a": _paper(title="A", match_status="not_found")}
+        refresh, doi, title, kept = route_papers(
+            raw, prior, full=False, retry_unmatched=False
+        )
+        assert [p.title for p in kept] == ["A"]
+
+    def test_retry_unmatched_routes_them_cold(self):
+        raw = [_paper(title="A", link="https://openreview.net/pdf?id=z")]
+        prior = {"a": _paper(title="A", match_status="not_found")}
+        refresh, doi, title, kept = route_papers(
+            raw, prior, full=False, retry_unmatched=True
+        )
+        assert [p.title for p in title] == ["A"]
+        assert kept == []
+
+    def test_full_bypasses_refresh(self):
+        raw = [_paper(title="A", link="https://doi.org/10.1/x")]
+        prior = {"a": _paper(title="A", external_ids={"CorpusId": 1})}
+        refresh, doi, title, kept = route_papers(
+            raw, prior, full=True, retry_unmatched=False
+        )
+        assert refresh == []
+        assert [p.title for p in doi] == ["A"]
+
+    def test_full_does_not_carry_over_prior(self):
+        raw = [_paper(title="A")]
+        prior = {"a": _paper(title="A", citation_count=999)}
+        route_papers(raw, prior, full=True, retry_unmatched=False)
+        assert raw[0].citation_count is None
+
+
+class TestEnrichConference:
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_refresh_path_updates_citations(self, tmp_path):
+        raw = [_paper(title="A"), _paper(title="B")]
+        enriched = [
+            _paper(title="A", external_ids={"CorpusId": 1}, citation_count=1),
+            _paper(title="B", external_ids={"CorpusId": 2}, citation_count=2),
+        ]
+        _conf(tmp_path, "iclr_2026", raw, enriched)
+        respx.post(BATCH_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {"title": "A", "citationCount": 100},
+                    {"title": "B", "citationCount": 200},
+                ],
+            )
+        )
+        result = await enrich_conference(
+            "iclr_2026", S2Client(min_interval=0.0), tmp_path
+        )
+        assert result.status == "enriched"
+        assert result.path == "refresh"
+        assert result.refreshed == 2
+        out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
+        assert [p.title for p in out] == ["B", "A"]  # sorted by citations desc
+        assert out[0].citation_count == 200
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_null_batch_entry_keeps_prior_citations(self, tmp_path):
+        _conf(
+            tmp_path,
+            "iclr_2026",
+            [_paper(title="A")],
+            [_paper(title="A", external_ids={"CorpusId": 1}, citation_count=77)],
+        )
+        respx.post(BATCH_URL).mock(return_value=httpx.Response(200, json=[None]))
+        await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
+        out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
+        assert out[0].citation_count == 77
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_id_cold_path_uses_doi(self, tmp_path):
+        _conf(
+            tmp_path,
+            "icra_2026",
+            [_paper(title="A", link="https://doi.org/10.1/x")],
+        )
+        route = respx.post(BATCH_URL).mock(
+            return_value=httpx.Response(
+                200, json=[{"title": "A", "citationCount": 9}]
+            )
+        )
+        result = await enrich_conference(
+            "icra_2026", S2Client(min_interval=0.0), tmp_path
+        )
+        assert result.path == "id-cold"
+        assert result.cold == 1
+        import json as _json
+
+        assert _json.loads(route.calls[0].request.content)["ids"] == ["DOI:10.1/x"]
+        out = read_papers(tmp_path / "icra_2026" / "papers_enriched.jsonl")
+        assert out[0].citation_count == 9
+        assert out[0].match_status == "matched"
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_title_cold_uses_bulk_then_falls_back_to_match(self, tmp_path):
+        _conf(
+            tmp_path,
+            "icml_2026",
+            [
+                _paper(title="In Bulk", link="https://openreview.net/pdf?id=a"),
+                _paper(title="Not In Bulk", link="https://openreview.net/pdf?id=b"),
+            ],
+        )
+        respx.get(BULK_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={"total": 1, "data": [{"title": "in bulk", "citationCount": 11}]},
+            )
+        )
+        match_route = respx.get(MATCH_URL).mock(
+            return_value=httpx.Response(
+                200, json={"data": [{"title": "Not In Bulk", "citationCount": 22}]}
+            )
+        )
+        result = await enrich_conference(
+            "icml_2026", S2Client(min_interval=0.0), tmp_path
+        )
+        assert result.path == "title-cold"
+        assert match_route.call_count == 1  # only the bulk miss
+        out = {p.title: p for p in read_papers(
+            tmp_path / "icml_2026" / "papers_enriched.jsonl"
+        )}
+        assert out["In Bulk"].citation_count == 11
+        assert out["In Bulk"].match_status == "matched"
+        assert out["Not In Bulk"].citation_count == 22
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_unknown_venue_skips_bulk(self, tmp_path):
+        _conf(tmp_path, "notavenue_2026", [_paper(title="A", link="x")])
+        bulk = respx.get(BULK_URL)
+        respx.get(MATCH_URL).mock(
+            return_value=httpx.Response(
+                200, json={"data": [{"title": "A", "citationCount": 1}]}
+            )
+        )
+        await enrich_conference("notavenue_2026", S2Client(min_interval=0.0), tmp_path)
+        assert bulk.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_empty_raw_with_enriched_is_skipped(self, tmp_path):
+        _conf(tmp_path, "corl_2024", [], [_paper(title="A")] * 264)
+        before = (tmp_path / "corl_2024" / "papers_enriched.jsonl").read_text()
+        result = await enrich_conference(
+            "corl_2024", S2Client(min_interval=0.0), tmp_path
+        )
+        assert result.status == "skipped"
+        assert "264" in result.reason
+        after = (tmp_path / "corl_2024" / "papers_enriched.jsonl").read_text()
+        assert after == before
+
+    @pytest.mark.asyncio
+    async def test_truncated_raw_is_skipped(self, tmp_path):
+        _conf(tmp_path, "acl_2025", [_paper(title="A")], [_paper(title="A")] * 100)
+        result = await enrich_conference(
+            "acl_2025", S2Client(min_interval=0.0), tmp_path
+        )
+        assert result.status == "skipped"
+
+    @pytest.mark.asyncio
+    async def test_missing_conference_is_nothing_to_do(self, tmp_path):
+        result = await enrich_conference(
+            "ghost_2026", S2Client(min_interval=0.0), tmp_path
+        )
+        assert result.status == "nothing-to-do"
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_paper_removed_from_raw_is_dropped(self, tmp_path):
+        _conf(
+            tmp_path,
+            "iclr_2026",
+            [_paper(title="Keep")],
+            [
+                _paper(title="Keep", external_ids={"CorpusId": 1}),
+                _paper(title="Gone", external_ids={"CorpusId": 2}),
+            ],
+        )
+        respx.post(BATCH_URL).mock(
+            return_value=httpx.Response(200, json=[{"title": "Keep", "citationCount": 1}])
+        )
+        await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
+        out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
+        assert [p.title for p in out] == ["Keep"]
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_mixed_refresh_and_new_papers_in_one_run(self, tmp_path):
+        _conf(
+            tmp_path,
+            "icra_2026",
+            [
+                _paper(title="Old", link="https://doi.org/10.1/old"),
+                _paper(title="New", link="https://doi.org/10.1/new"),
+            ],
+            [_paper(title="Old", external_ids={"CorpusId": 1}, citation_count=1)],
+        )
+
+        def _respond(request):
+            import json as _json
+
+            ids = _json.loads(request.content)["ids"]
+            return httpx.Response(
+                200, json=[{"title": i, "citationCount": 5} for i in ids]
+            )
+
+        respx.post(BATCH_URL).mock(side_effect=_respond)
+        result = await enrich_conference(
+            "icra_2026", S2Client(min_interval=0.0), tmp_path
+        )
+        assert result.refreshed == 1
+        assert result.cold == 1
+        assert result.total == 2
+
+
+class TestEnrichAll:
+    @pytest.mark.asyncio
+    async def test_one_skip_does_not_stop_the_rest(self, tmp_path):
+        _conf(tmp_path, "corl_2024", [], [_paper(title="A")] * 10)
+        _conf(tmp_path, "empty_2026", [])
+        results = await enrich_all(
+            ["corl_2024", "empty_2026"], S2Client(min_interval=0.0), tmp_path
+        )
+        assert [r.status for r in results] == ["skipped", "nothing-to-do"]
+
+
+class TestVenueNames:
+    def test_verified_venue_strings_present(self):
+        assert S2_VENUE_NAMES["icml"] == "International Conference on Machine Learning"
+        assert S2_VENUE_NAMES["cvpr"] == "CVPR"

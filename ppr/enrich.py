@@ -3,9 +3,14 @@
 import json
 import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
+import httpx
+from tqdm import tqdm
+
 from ppr.models import Paper
+from ppr.s2_client import S2Client
 
 logger = logging.getLogger(__name__)
 
@@ -138,3 +143,219 @@ def write_enriched(papers: list[Paper], path: Path) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+
+
+# Semantic Scholar's own venue strings, for bulk prefetch. Only entries verified
+# against the live API belong here — a prefix that is absent simply skips
+# prefetch and falls back to per-title matching, which is always correct.
+S2_VENUE_NAMES: dict[str, str] = {
+    "icml": "International Conference on Machine Learning",
+    "cvpr": "CVPR",
+}
+
+
+@dataclass
+class EnrichResult:
+    conf_id: str
+    status: str  # "enriched" | "skipped" | "nothing-to-do"
+    path: str = ""  # "refresh" | "id-cold" | "title-cold" | ""
+    total: int = 0
+    refreshed: int = 0
+    cold: int = 0
+    kept: int = 0
+    reason: str = ""
+
+
+def corpus_id_of(paper: Paper) -> str | None:
+    """The paper's Semantic Scholar corpus ID, if a previous run found one."""
+    corpus = (paper.external_ids or {}).get("CorpusId")
+    return f"CorpusId:{corpus}" if corpus else None
+
+
+def doi_id_of(paper: Paper) -> str | None:
+    """A DOI recorded by the crawler, if this venue's source provides one."""
+    prefix = "https://doi.org/"
+    if paper.link and paper.link.startswith(prefix):
+        return f"DOI:{paper.link[len(prefix):]}"
+    return None
+
+
+def route_papers(
+    raw: list[Paper],
+    prior_by_title: dict[str, Paper],
+    *,
+    full: bool,
+    retry_unmatched: bool,
+) -> tuple[list[Paper], list[Paper], list[Paper], list[Paper]]:
+    """Split raw papers into (refresh, doi_cold, title_cold, kept).
+
+    Papers are mutated in place: each one that has prior enrichment receives it
+    via carry_over before being routed, so a lookup that comes back empty falls
+    back to the previous values rather than to nothing.
+    """
+    refresh: list[Paper] = []
+    doi_cold: list[Paper] = []
+    title_cold: list[Paper] = []
+    kept: list[Paper] = []
+
+    for paper in raw:
+        prior = prior_by_title.get(normalize_title(paper.title))
+        if prior is not None and not full:
+            carry_over(paper, prior)
+
+        def _cold(p: Paper) -> None:
+            (doi_cold if doi_id_of(p) else title_cold).append(p)
+
+        if full:
+            _cold(paper)
+        elif prior is None:
+            _cold(paper)
+        elif corpus_id_of(prior):
+            refresh.append(paper)
+        elif retry_unmatched:
+            _cold(paper)
+        else:
+            kept.append(paper)
+
+    return refresh, doi_cold, title_cold, kept
+
+
+def _dominant_path(refresh: list, doi_cold: list, title_cold: list) -> str:
+    """Label the run by whichever path handled the most papers."""
+    counts = {"refresh": len(refresh), "id-cold": len(doi_cold), "title-cold": len(title_cold)}
+    best = max(counts, key=lambda k: counts[k])
+    return best if counts[best] else ""
+
+
+async def _run_batch(
+    client: S2Client,
+    http: httpx.AsyncClient,
+    papers: list[Paper],
+    id_of,
+    *,
+    set_match_status: bool,
+) -> None:
+    """Look papers up by ID and merge the results in place."""
+    if not papers:
+        return
+    ids = [id_of(p) for p in papers]
+    entries = await client.get_batch(http, ids)
+    for paper, entry in zip(papers, entries):
+        apply_enrichment(paper, entry)
+        if set_match_status:
+            paper.match_status = "matched" if entry else "not_found"
+
+
+async def _run_title_cold(
+    client: S2Client,
+    http: httpx.AsyncClient,
+    papers: list[Paper],
+    conf_id: str,
+) -> None:
+    """Prefetch the venue in bulk, then match the remainder one at a time."""
+    if not papers:
+        return
+
+    prefix, _, year_str = conf_id.rpartition("_")
+    venue = S2_VENUE_NAMES.get(prefix)
+    index: dict[str, dict] = {}
+    if venue and year_str.isdigit():
+        for entry in await client.bulk_search(http, venue, int(year_str)):
+            title = entry.get("title")
+            if title:
+                index.setdefault(normalize_title(title), entry)
+        logger.info(
+            "Bulk prefetch for %s returned %d indexed papers", conf_id, len(index)
+        )
+
+    misses: list[Paper] = []
+    for paper in papers:
+        entry = index.get(normalize_title(paper.title))
+        if entry is None:
+            misses.append(paper)
+            continue
+        apply_enrichment(paper, entry)
+        paper.match_status = "matched"
+
+    if misses:
+        logger.info(
+            "%s: %d papers not covered by bulk prefetch, matching by title",
+            conf_id,
+            len(misses),
+        )
+    for paper in tqdm(misses, desc=f"Matching {conf_id}", unit="paper"):
+        entry = await client.match_title(http, paper.title)
+        apply_enrichment(paper, entry)
+        paper.match_status = match_status_for(paper.title, entry)
+
+
+async def enrich_conference(
+    conf_id: str,
+    client: S2Client,
+    data_dir: Path,
+    *,
+    full: bool = False,
+    retry_unmatched: bool = False,
+) -> EnrichResult:
+    """Enrich a single conference, choosing the cheapest workable path."""
+    conf_dir = data_dir / conf_id
+    raw = read_papers(conf_dir / "papers.jsonl")
+    enriched = read_papers(conf_dir / "papers_enriched.jsonl")
+
+    reason = check_guards(raw, enriched)
+    if reason:
+        logger.warning("Skipping %s: %s", conf_id, reason)
+        return EnrichResult(conf_id, "skipped", reason=reason)
+
+    if not raw:
+        return EnrichResult(conf_id, "nothing-to-do")
+
+    prior_by_title = {normalize_title(p.title): p for p in enriched}
+    refresh, doi_cold, title_cold, kept = route_papers(
+        raw, prior_by_title, full=full, retry_unmatched=retry_unmatched
+    )
+
+    async with httpx.AsyncClient(timeout=60.0) as http:
+        await _run_batch(client, http, refresh, corpus_id_of, set_match_status=False)
+        await _run_batch(client, http, doi_cold, doi_id_of, set_match_status=True)
+        await _run_title_cold(client, http, title_cold, conf_id)
+
+    write_enriched(raw, conf_dir / "papers_enriched.jsonl")
+
+    return EnrichResult(
+        conf_id=conf_id,
+        status="enriched",
+        path=_dominant_path(refresh, doi_cold, title_cold),
+        total=len(raw),
+        refreshed=len(refresh),
+        cold=len(doi_cold) + len(title_cold),
+        kept=len(kept),
+    )
+
+
+async def enrich_all(
+    conf_ids: list[str],
+    client: S2Client,
+    data_dir: Path,
+    *,
+    full: bool = False,
+    retry_unmatched: bool = False,
+) -> list[EnrichResult]:
+    """Enrich each conference in turn. One failure never stops the rest."""
+    results = []
+    for conf_id in conf_ids:
+        logger.info("Enriching %s...", conf_id)
+        try:
+            results.append(
+                await enrich_conference(
+                    conf_id,
+                    client,
+                    data_dir,
+                    full=full,
+                    retry_unmatched=retry_unmatched,
+                )
+            )
+        except Exception as exc:  # keep going; the summary reports the failure
+            logger.exception("Failed to enrich %s", conf_id)
+            results.append(EnrichResult(conf_id, "skipped", reason=str(exc)))
+    return results
