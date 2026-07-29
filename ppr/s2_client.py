@@ -127,6 +127,16 @@ class S2Client:
             try:
                 entries = response.json()
             except ValueError:
+                entries = None
+            # A 200 whose body is not a list (an error envelope, say) carries no
+            # per-ID data. Fail the chunk like any other, so one odd response
+            # costs 500 papers rather than the whole conference.
+            if not isinstance(entries, list):
+                logger.warning(
+                    "Batch chunk of %d IDs returned an unexpected body; "
+                    "leaving them unchanged",
+                    len(chunk),
+                )
                 results.extend([None] * len(chunk))
                 continue
             # Defend against a short response so alignment with `ids` holds.
@@ -160,6 +170,13 @@ class S2Client:
             try:
                 payload = response.json()
             except ValueError:
+                return collected
+            # Prefetch is an optimization: an unexpected body shape means stop
+            # and let the caller fall back to per-title matching.
+            if not isinstance(payload, dict):
+                logger.warning(
+                    "Bulk search for %s %s returned an unexpected body", venue, year
+                )
                 return collected
 
             page = payload.get("data") or []

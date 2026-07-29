@@ -204,6 +204,17 @@ class TestGetBatch:
             out = await _client().get_batch(client, ["CorpusId:1", "CorpusId:2"])
         assert out == [None, None]
 
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_non_list_body_is_treated_as_a_failed_chunk(self):
+        """A 200 carrying an error object, not a list, must not break the run."""
+        respx.post(BATCH_URL).mock(
+            return_value=httpx.Response(200, json={"error": "Bad request"})
+        )
+        async with httpx.AsyncClient() as client:
+            out = await _client().get_batch(client, ["CorpusId:1", "CorpusId:2"])
+        assert out == [None, None]
+
 
 from ppr.s2_client import BULK_URL
 
@@ -272,3 +283,28 @@ class TestBulkSearch:
         async with httpx.AsyncClient() as client:
             out = await _client().bulk_search(client, "ICML", 2026)
         assert out == []
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_non_dict_body_returns_empty_list(self):
+        """A 200 whose body is a bare list has no `data` key to read."""
+        respx.get(BULK_URL).mock(
+            return_value=httpx.Response(200, json=[{"title": "A"}])
+        )
+        async with httpx.AsyncClient() as client:
+            out = await _client().bulk_search(client, "ICML", 2026)
+        assert out == []
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_non_dict_body_mid_pagination_keeps_earlier_pages(self):
+        route = respx.get(BULK_URL)
+        route.side_effect = [
+            httpx.Response(
+                200, json={"total": 2, "token": "tok1", "data": [{"title": "A"}]}
+            ),
+            httpx.Response(200, json="unexpected"),
+        ]
+        async with httpx.AsyncClient() as client:
+            out = await _client().bulk_search(client, "ICML", 2026)
+        assert [e["title"] for e in out] == ["A"]
