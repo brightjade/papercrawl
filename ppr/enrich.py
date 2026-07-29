@@ -148,9 +148,24 @@ def write_enriched(papers: list[Paper], path: Path) -> None:
 # Semantic Scholar's own venue strings, for bulk prefetch. Only entries verified
 # against the live API belong here — a prefix that is absent simply skips
 # prefetch and falls back to per-title matching, which is always correct.
+# Each string below was probed against /paper/search/bulk and returned a total
+# within the same order of magnitude as our own count for that venue-year. S2
+# resolves an acronym and its expansion to the same venue, so both forms return
+# identical totals; the expansion is preferred where the acronym is ambiguous.
 S2_VENUE_NAMES: dict[str, str] = {
-    "icml": "International Conference on Machine Learning",
+    "aaai": "AAAI Conference on Artificial Intelligence",
+    "acl": "Annual Meeting of the Association for Computational Linguistics",
+    "coling": "International Conference on Computational Linguistics",
     "cvpr": "CVPR",
+    "eccv": "European Conference on Computer Vision",
+    "emnlp": "Conference on Empirical Methods in Natural Language Processing",
+    "iccv": "IEEE International Conference on Computer Vision",
+    "iclr": "International Conference on Learning Representations",
+    "icml": "International Conference on Machine Learning",
+    "ijcai": "International Joint Conference on Artificial Intelligence",
+    "naacl": "NAACL",
+    "neurips": "Neural Information Processing Systems",
+    "wacv": "WACV",
 }
 
 
