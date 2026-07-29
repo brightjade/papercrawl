@@ -94,3 +94,43 @@ class S2Client:
             return response.json()["data"][0]
         except (KeyError, IndexError, TypeError, ValueError):
             return None
+
+    async def get_batch(
+        self,
+        client: httpx.AsyncClient,
+        ids: list[str],
+        fields: str = ENRICHMENT_FIELDS,
+    ) -> list[dict | None]:
+        """Look papers up by ID, 500 per request.
+
+        `ids` are prefixed Semantic Scholar identifiers (`CorpusId:…`, `DOI:…`).
+        The returned list is positionally aligned with `ids`; an entry is None
+        when Semantic Scholar had no record, or when its chunk failed outright.
+        """
+        results: list[dict | None] = []
+        for start in range(0, len(ids), BATCH_CHUNK_SIZE):
+            chunk = ids[start : start + BATCH_CHUNK_SIZE]
+            response = await self._request_with_retry(
+                client,
+                "POST",
+                BATCH_URL,
+                params={"fields": fields},
+                json={"ids": chunk},
+            )
+            if response is None or response.status_code != 200:
+                logger.warning(
+                    "Batch chunk of %d IDs failed; leaving them unchanged",
+                    len(chunk),
+                )
+                results.extend([None] * len(chunk))
+                continue
+            try:
+                entries = response.json()
+            except ValueError:
+                results.extend([None] * len(chunk))
+                continue
+            # Defend against a short response so alignment with `ids` holds.
+            if len(entries) < len(chunk):
+                entries = list(entries) + [None] * (len(chunk) - len(entries))
+            results.extend(entries[: len(chunk)])
+        return results

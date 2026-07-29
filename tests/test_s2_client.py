@@ -101,3 +101,105 @@ class TestClientConfig:
         await c._rate_limit()
         await c._rate_limit()
         assert asyncio.get_event_loop().time() - start >= 0.05
+
+
+from ppr.s2_client import BATCH_URL
+
+
+class TestGetBatch:
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_returns_entries_in_request_order(self):
+        respx.post(BATCH_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {"title": "A", "citationCount": 1},
+                    {"title": "B", "citationCount": 2},
+                ],
+            )
+        )
+        async with httpx.AsyncClient() as client:
+            out = await _client().get_batch(client, ["CorpusId:1", "CorpusId:2"])
+        assert [e["title"] for e in out] == ["A", "B"]
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_null_entries_are_preserved_as_none(self):
+        respx.post(BATCH_URL).mock(
+            return_value=httpx.Response(
+                200, json=[{"title": "A", "citationCount": 1}, None]
+            )
+        )
+        async with httpx.AsyncClient() as client:
+            out = await _client().get_batch(client, ["CorpusId:1", "CorpusId:404"])
+        assert out[0]["title"] == "A"
+        assert out[1] is None
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_empty_ids_makes_no_request(self):
+        route = respx.post(BATCH_URL)
+        async with httpx.AsyncClient() as client:
+            out = await _client().get_batch(client, [])
+        assert out == []
+        assert route.call_count == 0
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_chunks_at_500(self):
+        """501 IDs must become exactly two requests, of 500 and 1."""
+        sizes = []
+
+        def _respond(request):
+            import json as _json
+
+            ids = _json.loads(request.content)["ids"]
+            sizes.append(len(ids))
+            return httpx.Response(
+                200, json=[{"title": f"P{i}", "citationCount": 0} for i in ids]
+            )
+
+        respx.post(BATCH_URL).mock(side_effect=_respond)
+        async with httpx.AsyncClient() as client:
+            out = await _client().get_batch(
+                client, [f"CorpusId:{i}" for i in range(501)]
+            )
+        assert sizes == [500, 1]
+        assert len(out) == 501
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_exactly_500_is_one_request(self):
+        route = respx.post(BATCH_URL).mock(
+            side_effect=lambda request: httpx.Response(
+                200, json=[{"title": "x", "citationCount": 0}] * 500
+            )
+        )
+        async with httpx.AsyncClient() as client:
+            out = await _client().get_batch(
+                client, [f"CorpusId:{i}" for i in range(500)]
+            )
+        assert route.call_count == 1
+        assert len(out) == 500
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_429_then_success(self, no_sleep):
+        route = respx.post(BATCH_URL)
+        route.side_effect = [
+            httpx.Response(429),
+            httpx.Response(200, json=[{"title": "A", "citationCount": 3}]),
+        ]
+        async with httpx.AsyncClient() as client:
+            out = await _client().get_batch(client, ["CorpusId:1"])
+        assert out[0]["citationCount"] == 3
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_failed_chunk_yields_none_padding(self, no_sleep):
+        """A chunk that never succeeds must not shift later results."""
+        respx.post(BATCH_URL).mock(return_value=httpx.Response(500))
+        async with httpx.AsyncClient() as client:
+            out = await _client().get_batch(client, ["CorpusId:1", "CorpusId:2"])
+        assert out == [None, None]
