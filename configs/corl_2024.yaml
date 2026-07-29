@@ -3,6 +3,8 @@ conference:
   year: 2024
   venue_id: "robot-learning.org/CoRL/2024/Conference"
   api_version: 2
+  # Unlike CoRL 2023 and 2025, CoRL 2024 does not record a track in the `venue`
+  # field -- all 264 accepted papers report plain "CoRL 2024". Matching on
+  # "CoRL 2024 Oral"/"CoRL 2024 Poster" here silently yields zero papers.
   selections:
-    oral: "CoRL 2024 Oral"
-    poster: "CoRL 2024 Poster"
+    main: "CoRL 2024"
