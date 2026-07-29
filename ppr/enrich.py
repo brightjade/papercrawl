@@ -1,0 +1,78 @@
+"""Per-conference enrichment: path selection, merging, guards, atomic writes."""
+
+import logging
+
+from ppr.models import Paper
+
+logger = logging.getLogger(__name__)
+
+
+def normalize_title(title: str) -> str:
+    """Lowercase and collapse whitespace, for cross-source title comparison."""
+    return " ".join(title.lower().split())
+
+
+def apply_enrichment(paper: Paper, entry: dict | None) -> Paper:
+    """Merge one raw Semantic Scholar record into `paper`, in place.
+
+    A None entry — or one with no citation count — means the API had nothing to
+    say, so the existing record is left exactly as it was. Crawl-owned fields
+    (title, authors, link, selection, keywords, forum_id) are never touched.
+    """
+    if entry is None or entry.get("citationCount") is None:
+        return paper
+
+    paper.citation_count = entry.get("citationCount")
+    paper.influential_citation_count = entry.get("influentialCitationCount")
+    paper.reference_count = entry.get("referenceCount")
+    paper.publication_date = entry.get("publicationDate") or ""
+    paper.fields_of_study = entry.get("fieldsOfStudy") or []
+
+    pdf = entry.get("openAccessPdf")
+    paper.open_access_pdf = pdf.get("url", "") if isinstance(pdf, dict) else ""
+
+    paper.external_ids = entry.get("externalIds") or {}
+
+    tldr = entry.get("tldr")
+    tldr_text = tldr.get("text", "") if isinstance(tldr, dict) else ""
+    if tldr_text:
+        paper.tldr = tldr_text
+
+    if not paper.abstract and entry.get("abstract"):
+        paper.abstract = entry["abstract"]
+
+    return paper
+
+
+def match_status_for(query_title: str, entry: dict | None) -> str:
+    """Classify a title-based lookup result."""
+    if entry is None:
+        return "not_found"
+    if normalize_title(query_title) == normalize_title(entry.get("title", "")):
+        return "matched"
+    logger.warning(
+        "Title mismatch for '%s' — got '%s'", query_title, entry.get("title", "")
+    )
+    return "mismatch"
+
+
+def carry_over(raw: Paper, prior: Paper) -> Paper:
+    """Copy prior enrichment onto a freshly-crawled paper, in place.
+
+    The raw crawl is authoritative for identity (title, authors, link,
+    selection, keywords, forum_id); the enriched file holds the only copy of
+    previous enrichment. Carrying it over means a paper whose refresh lookup
+    comes back empty keeps its old values instead of silently losing them.
+    """
+    raw.citation_count = prior.citation_count
+    raw.influential_citation_count = prior.influential_citation_count
+    raw.reference_count = prior.reference_count
+    raw.tldr = prior.tldr
+    raw.publication_date = prior.publication_date
+    raw.fields_of_study = prior.fields_of_study
+    raw.open_access_pdf = prior.open_access_pdf
+    raw.external_ids = prior.external_ids
+    raw.match_status = prior.match_status
+    if not raw.abstract and prior.abstract:
+        raw.abstract = prior.abstract
+    return raw
