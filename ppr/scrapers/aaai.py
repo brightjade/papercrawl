@@ -20,6 +20,10 @@ AAAI_ISSUES = {
     "aaai_2023": list(range(548, 560)),   # Vol 37: tracks 1-11 (548-558), special (559)
     "aaai_2024": list(range(576, 596)),   # Vol 38: tracks 1-18 (576-593), special (594-595)
     "aaai_2025": list(range(624, 651)) + [652],  # Vol 39: tracks 1-19 (624-642), 20 (652), 21-25 (644-648), special (649-650)
+    # Vol 40: technical tracks 1-43 (683-705, 707-725, with CV III out of sequence at 733),
+    # special tracks (AI Alignment 726, AI for Social Impact I/II 727-728).
+    # Excludes 729 (New Faculty/Journal/IAAI/EAAI) and 732 (EAAI/Emerging Trends/Doctoral/Student/Undergrad/Demo).
+    "aaai_2026": list(range(683, 706)) + list(range(707, 729)) + [733],
 }
 
 BASE_URL = "https://ojs.aaai.org/index.php/AAAI/issue/view"

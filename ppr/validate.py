@@ -109,6 +109,7 @@ DBLP_VALIDATION_KEYS: dict[str, list[str]] = {
     "aaai_2023": ["db/conf/aaai/aaai2023.bht"],
     "aaai_2024": ["db/conf/aaai/aaai2024.bht"],
     "aaai_2025": ["db/conf/aaai/aaai2025.bht"],
+    "aaai_2026": ["db/conf/aaai/aaai2026.bht"],
     # --- USENIX Security ---
     "usenix_security_2023": ["db/conf/uss/uss2023.bht"],
     "usenix_security_2024": ["db/conf/uss/uss2024.bht"],
