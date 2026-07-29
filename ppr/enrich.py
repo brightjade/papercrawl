@@ -1,6 +1,9 @@
 """Per-conference enrichment: path selection, merging, guards, atomic writes."""
 
+import json
 import logging
+import os
+from pathlib import Path
 
 from ppr.models import Paper
 
@@ -76,3 +79,62 @@ def carry_over(raw: Paper, prior: Paper) -> Paper:
     if not raw.abstract and prior.abstract:
         raw.abstract = prior.abstract
     return raw
+
+
+# A re-crawl that returns less than this fraction of the previously enriched
+# paper count is treated as a failed crawl rather than a real shrinkage.
+MIN_RAW_RATIO = 0.5
+
+
+def read_papers(path: Path) -> list[Paper]:
+    """Read a JSONL paper file. A missing or empty file reads as no papers."""
+    if not path.exists():
+        return []
+    with open(path, encoding="utf-8") as f:
+        return [Paper.from_dict(json.loads(line)) for line in f if line.strip()]
+
+
+def check_guards(raw: list[Paper], enriched: list[Paper]) -> str | None:
+    """Decide whether it is safe to overwrite an existing enriched file.
+
+    Returns a human-readable reason to skip, or None to proceed. Both guards
+    compare against existing enrichment, so a conference being enriched for the
+    first time is never blocked.
+    """
+    if not enriched:
+        return None
+    if not raw:
+        return (
+            f"papers.jsonl is empty or missing while papers_enriched.jsonl holds "
+            f"{len(enriched)} papers — refusing to overwrite. Re-crawl first."
+        )
+    if len(raw) < MIN_RAW_RATIO * len(enriched):
+        return (
+            f"papers.jsonl has {len(raw)} papers, under "
+            f"{MIN_RAW_RATIO:.0%} of the {len(enriched)} already enriched — "
+            f"refusing to overwrite. Re-crawl first."
+        )
+    return None
+
+
+def write_enriched(papers: list[Paper], path: Path) -> None:
+    """Sort by citation count descending and replace `path` atomically.
+
+    Writing to a temp file and renaming means an interrupted or failing run
+    leaves the previous enriched file untouched.
+    """
+    ordered = sorted(
+        papers,
+        key=lambda p: p.citation_count if p.citation_count is not None else -1,
+        reverse=True,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            for paper in ordered:
+                f.write(paper.to_json() + "\n")
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
