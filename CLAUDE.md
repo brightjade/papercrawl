@@ -35,7 +35,7 @@ Multiple data sources, one output format:
 - **CV conferences** (CVPR, ICCV, ECCV, WACV): conference ID -> `ppr.scrapers.cvf.SCRAPERS` -> CVF Open Access / ECVA for ECCV -> `Paper` with `selection` tag
 - **Robotics conferences** (ICRA, IROS): conference ID -> `ppr.scrapers.dblp.SCRAPERS` -> DBLP JSON API. RSS 2025 uses dedicated `ppr.scrapers.rss` scraper; RSS 2023-2024 use DBLP.
 - **SE conferences** (ICSE, FSE, ASE, ISSTA): conference ID -> `ppr.scrapers.dblp.SCRAPERS` -> DBLP JSON search API (`toc:` query) -> `Paper` with `selection` tag. No auth needed. FSE 2024+ and ISSTA 2025+ use PACMSE journal keys with `number` field filtering.
-- **IJCAI**: conference ID -> `ppr.scrapers.dblp.SCRAPERS` -> DBLP JSON API.
+- **IJCAI**: 2023-2025 -> `ppr.scrapers.dblp.SCRAPERS` -> DBLP JSON API. 2026 -> `ppr.scrapers.ijcai.SCRAPERS` -> conference website (not yet on DBLP).
 
 All produce JSONL. Enrichment (citations + abstracts via Semantic Scholar) works the same for all sources. OpenReview abstracts are preserved; Semantic Scholar abstracts fill in papers that lack them.
 
@@ -52,6 +52,7 @@ All source code lives in the `ppr/` package:
   - `dblp.py` -- SE conferences (ICSE, FSE, ASE, ISSTA), robotics (ICRA, IROS, RSS 2023-2024), and IJCAI via DBLP JSON API. Config dict maps conference IDs to `toc:` keys. Handles PACMSE journal volumes (shared by FSE/ISSTA) via `number` field filtering. Strips DBLP author disambiguation suffixes and HTML entities.
   - `cvf.py` -- CV conferences (CVPR, ICCV, WACV) from CVF Open Access, ECCV from ECVA. Parses paper lists with author metadata.
   - `rss.py` -- RSS 2025 from the RSS website (earlier years use DBLP).
+  - `ijcai.py` -- IJCAI 2026 from the conference website (`2026.ijcai.org/accepted-papers`), which lists all papers as `<li class="ij-paper">` with title, authors, abstract, and topic keywords. IJCAI 2023-2025 stay on DBLP; 2026 isn't indexed there yet (same split as RSS). Needs a browser UA.
 - `ppr/citations.py` -- Async enrichment (citations + abstracts) via Semantic Scholar with `httpx` + `asyncio.Semaphore`. Rate-limited to 1 req/sec. Streams results to a temp file with tqdm progress bar, then writes sorted final file. Preserves existing abstracts (e.g., from OpenReview). Supports resume: if tmp file exists, skips already-enriched papers.
 - `ppr/validate.py` -- Cross-references scraped paper counts against DBLP proceedings data. Maps conference IDs to DBLP toc keys, fetches counts via paginated API, compares with configurable tolerance (default 10%). Skips DBLP-sourced conferences (circular validation).
 - `ppr/models.py` -- `Paper` dataclass with `selection` field. `to_dict()` excludes `None` and empty-string fields.

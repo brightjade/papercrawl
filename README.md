@@ -30,9 +30,10 @@ After installing, restart your terminal so the `uv` command is available.
 git clone https://github.com/brightjade/paper-explorer.git
 cd paper-explorer
 uv sync
+source .venv/bin/activate
 ```
 
-This creates a virtual environment and installs all required packages automatically.
+This creates a virtual environment and installs all required packages automatically. Activating it once lets you run `ppr` directly; re-run `source .venv/bin/activate` in each new shell.
 
 ### 3. Download paper data
 
@@ -63,16 +64,16 @@ cp .env.example .env
 
 ```bash
 # Crawl one or more conferences
-uv run ppr crawl iclr_2025
-uv run ppr crawl iclr_2025 neurips_2025 icml_2025
+ppr crawl iclr_2025
+ppr crawl iclr_2025 neurips_2025 icml_2025
 
 # Enrich with citation counts and abstracts
-uv run ppr enrich iclr_2025
-uv run ppr enrich iclr_2025 neurips_2025 icml_2025
+ppr enrich iclr_2025
+ppr enrich iclr_2025 neurips_2025 icml_2025
 
 # Validate paper counts against DBLP
-uv run ppr validate iclr_2025
-uv run ppr validate iclr_2025 neurips_2025 --tolerance 0.15
+ppr validate iclr_2025
+ppr validate iclr_2025 neurips_2025 --tolerance 0.15
 
 # Build static JSON for web app
 ./build.sh
@@ -89,7 +90,7 @@ Conference ID format: `<venue>_<year>` (e.g., `iclr_2025`). Selections indicate 
 | ICLR | oral, poster | oral, spotlight, poster | oral, spotlight, poster | oral, spotlight, poster |
 | NeurIPS | | oral, spotlight, poster | oral, spotlight, poster | oral, spotlight, poster |
 | ICML | | oral, spotlight, poster | oral, spotlight, poster | oral, poster |
-| AAAI | | main | main | main |
+| AAAI | main | main | main | main |
 | IJCAI | | main | main | main |
 
 NeurIPS also includes `datasets_oral`, `datasets_spotlight`, `datasets_poster` tracks.
