@@ -134,3 +134,40 @@ class S2Client:
                 entries = list(entries) + [None] * (len(chunk) - len(entries))
             results.extend(entries[: len(chunk)])
         return results
+
+    async def bulk_search(
+        self,
+        client: httpx.AsyncClient,
+        venue: str,
+        year: int,
+        fields: str = ENRICHMENT_FIELDS,
+    ) -> list[dict]:
+        """Fetch every paper Semantic Scholar indexes for a venue and year.
+
+        Coverage is partial and depends on Semantic Scholar's own venue naming,
+        so callers must treat this as an optimization: an empty result means
+        fall back to per-title matching, not that the venue has no papers.
+        """
+        collected: list[dict] = []
+        params = {"venue": venue, "year": str(year), "fields": fields}
+        while True:
+            response = await self._request_with_retry(
+                client, "GET", BULK_URL, params=params
+            )
+            if response is None or response.status_code != 200:
+                logger.warning("Bulk search failed for %s %s", venue, year)
+                return collected
+            try:
+                payload = response.json()
+            except ValueError:
+                return collected
+
+            page = payload.get("data") or []
+            if not page:
+                return collected
+            collected.extend(page)
+
+            token = payload.get("token")
+            if not token:
+                return collected
+            params = dict(params, token=token)

@@ -203,3 +203,72 @@ class TestGetBatch:
         async with httpx.AsyncClient() as client:
             out = await _client().get_batch(client, ["CorpusId:1", "CorpusId:2"])
         assert out == [None, None]
+
+
+from ppr.s2_client import BULK_URL
+
+
+class TestBulkSearch:
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_single_page(self):
+        respx.get(BULK_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={"total": 2, "data": [{"title": "A"}, {"title": "B"}]},
+            )
+        )
+        async with httpx.AsyncClient() as client:
+            out = await _client().bulk_search(client, "ICML", 2026)
+        assert [e["title"] for e in out] == ["A", "B"]
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_follows_continuation_token(self):
+        route = respx.get(BULK_URL)
+        route.side_effect = [
+            httpx.Response(
+                200, json={"total": 3, "token": "tok1", "data": [{"title": "A"}]}
+            ),
+            httpx.Response(
+                200, json={"total": 3, "token": "tok2", "data": [{"title": "B"}]}
+            ),
+            httpx.Response(200, json={"total": 3, "data": [{"title": "C"}]}),
+        ]
+        async with httpx.AsyncClient() as client:
+            out = await _client().bulk_search(client, "ICML", 2026)
+        assert [e["title"] for e in out] == ["A", "B", "C"]
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_sends_venue_and_year_params(self):
+        route = respx.get(BULK_URL).mock(
+            return_value=httpx.Response(200, json={"total": 0, "data": []})
+        )
+        async with httpx.AsyncClient() as client:
+            await _client().bulk_search(client, "CVPR", 2026)
+        request = route.calls[0].request
+        assert request.url.params["venue"] == "CVPR"
+        assert request.url.params["year"] == "2026"
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_empty_page_stops_pagination(self):
+        """A token that keeps returning nothing must not loop forever."""
+        route = respx.get(BULK_URL).mock(
+            return_value=httpx.Response(
+                200, json={"total": 99, "token": "same", "data": []}
+            )
+        )
+        async with httpx.AsyncClient() as client:
+            out = await _client().bulk_search(client, "ICML", 2026)
+        assert out == []
+        assert route.call_count == 1
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_failure_returns_empty_list(self, no_sleep):
+        respx.get(BULK_URL).mock(return_value=httpx.Response(500))
+        async with httpx.AsyncClient() as client:
+            out = await _client().bulk_search(client, "ICML", 2026)
+        assert out == []
