@@ -1,6 +1,5 @@
 import argparse
 import asyncio
-import json
 import logging
 import os
 from pathlib import Path
@@ -11,9 +10,10 @@ load_dotenv()
 
 from ppr.scrapers import SCRAPERS
 from ppr.api_client import OpenReviewAPIClient, create_openreview_client, create_openreview_v1_client
-from ppr.citations import CitationFetcher
 from ppr.config import CrawlConfig
+from ppr.enrich import enrich_all, format_enrich_summary
 from ppr.models import Paper
+from ppr.s2_client import S2Client
 
 CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -30,13 +30,11 @@ def _available_conferences() -> list[str]:
     return sorted(from_configs | SCRAPERS.keys())
 
 
-def _resolve_input(conf_id: str) -> Path:
-    return DATA_DIR / conf_id / "papers.jsonl"
-
-
-def _read_papers_jsonl(path: Path) -> list[Paper]:
-    with open(path, encoding="utf-8") as f:
-        return [Paper.from_dict(json.loads(line)) for line in f if line.strip()]
+def all_conference_ids(data_dir: Path) -> list[str]:
+    """Every conference directory under data/, sorted."""
+    if not data_dir.exists():
+        return []
+    return sorted(d.name for d in data_dir.iterdir() if d.is_dir())
 
 
 def _save_papers(papers: list[Paper], conf_id: str) -> Path:
@@ -83,16 +81,24 @@ def build_parser() -> argparse.ArgumentParser:
         "enrich", help="Enrich papers with Semantic Scholar metadata (e.g., ppr enrich iclr_2025 neurips_2025)"
     )
     enrich_parser.add_argument(
-        "conferences", nargs="+",
-        help="Conference IDs (e.g., iclr_2025 neurips_2025).",
+        "conferences", nargs="*", default=[],
+        help="Conference IDs (e.g., iclr_2026 neurips_2026). Omit with --all.",
+    )
+    enrich_parser.add_argument(
+        "--all", action="store_true",
+        help="Enrich every conference under data/.",
+    )
+    enrich_parser.add_argument(
+        "--full", action="store_true",
+        help="Discard existing enrichment and re-run the cold path.",
+    )
+    enrich_parser.add_argument(
+        "--retry-unmatched", action="store_true",
+        help="Also retry papers that no previous run could match.",
     )
     enrich_parser.add_argument(
         "--api-key", default=os.environ.get("SEMANTIC_SCHOLAR_API_KEY", ""),
         help="Semantic Scholar API key (optional, increases rate limits).",
-    )
-    enrich_parser.add_argument(
-        "--concurrency", type=int, default=1,
-        help="Max concurrent requests (default: 1, matching Semantic Scholar rate limit).",
     )
 
     # validate
@@ -158,57 +164,31 @@ def cmd_crawl(args: argparse.Namespace) -> None:
             )
 
 
-def _enrich_one(conf_id: str, fetcher: CitationFetcher) -> None:
-    input_path = _resolve_input(conf_id)
-    if not input_path.exists():
-        raise FileNotFoundError(
-            f"No papers found at {input_path}. Run 'ppr crawl {conf_id}' first."
+def cmd_enrich(args: argparse.Namespace) -> None:
+    conf_ids = all_conference_ids(DATA_DIR) if args.all else args.conferences
+    if not conf_ids:
+        raise SystemExit(
+            "No conferences given. Pass conference IDs or use --all."
         )
 
-    papers = _read_papers_jsonl(input_path)
-
-    logger.info("Loaded %d papers from %s", len(papers), input_path)
-
-    output_dir = input_path.parent
-    tmp_path = output_dir / ".papers_enriched.tmp.jsonl"
-    final_path = output_dir / "papers_enriched.jsonl"
-
-    # Resume: load already-enriched papers from tmp file
-    done_papers = []
-    if tmp_path.exists():
-        done_papers = _read_papers_jsonl(tmp_path)
-        done_titles = {p.title for p in done_papers}
-        remaining = [p for p in papers if p.title not in done_titles]
-        logger.info("Resuming: %d already done, %d remaining", len(done_papers), len(remaining))
-    else:
-        remaining = papers
-
-    if remaining:
-        new_papers = asyncio.run(fetcher.fetch_and_stream(remaining, tmp_path, append=bool(done_papers)))
-        all_papers = done_papers + new_papers
-    else:
-        all_papers = done_papers
-        logger.info("All papers already enriched")
-
-    sorted_papers = sorted(
-        all_papers,
-        key=lambda p: p.citation_count if p.citation_count is not None else -1,
-        reverse=True,
+    client = S2Client(api_key=args.api_key or None)
+    results = asyncio.run(
+        enrich_all(
+            conf_ids,
+            client,
+            DATA_DIR,
+            full=args.full,
+            retry_unmatched=args.retry_unmatched,
+        )
     )
-    with open(final_path, "w", encoding="utf-8") as f:
-        for paper in sorted_papers:
-            f.write(paper.to_json() + "\n")
-    tmp_path.unlink()
-    logger.info("Saved %d papers (sorted by citations) to %s", len(sorted_papers), final_path)
+    print(format_enrich_summary(results))
 
-
-def cmd_enrich(args: argparse.Namespace) -> None:
-    api_key = args.api_key or None
-    fetcher = CitationFetcher(api_key=api_key, max_concurrency=args.concurrency)
-
-    for conf_id in args.conferences:
-        logger.info("Enriching %s...", conf_id)
-        _enrich_one(conf_id, fetcher)
+    # `ppr enrich --all` feeds ./build.sh and a data release, so a crashed
+    # conference must not read as success to the calling shell. Guard skips are
+    # a correct outcome and stay exit-0.
+    failures = [r for r in results if r.status == "failed"]
+    if failures:
+        raise SystemExit(1)
 
 
 def cmd_validate(args: argparse.Namespace) -> None:

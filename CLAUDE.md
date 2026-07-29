@@ -9,6 +9,7 @@ uv sync                                        # Install dependencies
 uv run ppr crawl iclr_2025                     # Crawl one conference
 uv run ppr crawl iclr_2025 neurips_2025        # Crawl multiple (one OpenReview login)
 uv run ppr enrich iclr_2025 neurips_2025        # Enrich with Semantic Scholar metadata
+uv run ppr enrich --all                        # Refresh citations for every conference
 uv run ppr validate iclr_2025                  # Validate paper count against DBLP
 ./build.sh                                     # Build static JSON for web app
 uv run pytest tests/                           # Run all tests
@@ -53,7 +54,8 @@ All source code lives in the `ppr/` package:
   - `cvf.py` -- CV conferences (CVPR, ICCV, WACV) from CVF Open Access, ECCV from ECVA. Parses paper lists with author metadata.
   - `rss.py` -- RSS 2025 from the RSS website (earlier years use DBLP).
   - `ijcai.py` -- IJCAI 2026 from the conference website (`2026.ijcai.org/accepted-papers`), which lists all papers as `<li class="ij-paper">` with title, authors, abstract, and topic keywords. IJCAI 2023-2025 stay on DBLP; 2026 isn't indexed there yet (same split as RSS). Needs a browser UA.
-- `ppr/citations.py` -- Async enrichment (citations + abstracts) via Semantic Scholar with `httpx` + `asyncio.Semaphore`. Rate-limited to 1 req/sec. Streams results to a temp file with tqdm progress bar, then writes sorted final file. Preserves existing abstracts (e.g., from OpenReview). Supports resume: if tmp file exists, skips already-enriched papers.
+- `ppr/s2_client.py` -- Single point of contact with the Semantic Scholar Graph API. Owns pacing and 429/403 exponential backoff, shared by all three endpoints: `match_title` (one paper by title, heavily throttled to ~0.3 req/s), `get_batch` (up to 500 IDs per request -- `CorpusId:`, `DOI:`), and `bulk_search` (venue+year, 1000 papers per page). Returns raw API dicts.
+- `ppr/enrich.py` -- Per-conference enrichment. Picks the cheapest workable path: **refresh** (batch by `CorpusId` from the existing enriched file), **id-cold** (batch by `DOI` from the crawler's `link`, for DBLP-sourced venues), or **title-cold** (bulk prefetch by venue+year, then per-title matching for the misses). Guards against data loss: a raw `papers.jsonl` that is empty or under 50% of the enriched count is skipped rather than written. Writes atomically via temp file + `os.replace`, sorted by citation count.
 - `ppr/validate.py` -- Cross-references scraped paper counts against DBLP proceedings data. Maps conference IDs to DBLP toc keys, fetches counts via paginated API, compares with configurable tolerance (default 10%). Skips DBLP-sourced conferences (circular validation).
 - `ppr/models.py` -- `Paper` dataclass with `selection` field. `to_dict()` excludes `None` and empty-string fields.
 - `ppr/config.py` -- `CrawlConfig` from YAML. `conference_id` derived from filename, output path derived from that.

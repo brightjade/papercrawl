@@ -70,6 +70,7 @@ ppr crawl iclr_2025 neurips_2025 icml_2025
 # Enrich with citation counts and abstracts
 ppr enrich iclr_2025
 ppr enrich iclr_2025 neurips_2025 icml_2025
+ppr enrich --all                      # refresh every conference under data/
 
 # Validate paper counts against DBLP
 ppr validate iclr_2025
