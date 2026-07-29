@@ -349,6 +349,19 @@ class TestRoutePapers:
         route_papers(raw, prior, full=True, retry_unmatched=False)
         assert raw[0].citation_count is None
 
+    def test_retry_unmatched_does_not_override_known_corpus_id(self):
+        # A known CorpusId means the paper is already matched — retry_unmatched
+        # is for papers that were previously *unmatchable*, so it must not pull
+        # an already-matched paper off the (cheap) refresh path onto the
+        # (expensive) cold path.
+        raw = [_paper(title="A", link="https://doi.org/10.1/x")]
+        prior = {"a": _paper(title="A", external_ids={"CorpusId": 1})}
+        refresh, doi, title, kept = route_papers(
+            raw, prior, full=False, retry_unmatched=True
+        )
+        assert [p.title for p in refresh] == ["A"]
+        assert (doi, title, kept) == ([], [], [])
+
 
 class TestEnrichConference:
     @respx.mock
@@ -392,6 +405,72 @@ class TestEnrichConference:
         await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
         out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
         assert out[0].citation_count == 77
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_refresh_path_does_not_relabel_match_status(self, tmp_path):
+        # Refresh updates records already adjudicated by a prior title-match run.
+        # A non-default match_status ("mismatch") must survive a refresh
+        # untouched — re-labelling it from the batch response would destroy
+        # that adjudication history.
+        _conf(
+            tmp_path,
+            "iclr_2026",
+            [_paper(title="A")],
+            [_paper(title="A", external_ids={"CorpusId": 1}, match_status="mismatch")],
+        )
+        respx.post(BATCH_URL).mock(
+            return_value=httpx.Response(200, json=[{"title": "A", "citationCount": 5}])
+        )
+        await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
+        out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
+        assert out[0].match_status == "mismatch"
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_refresh_null_entry_does_not_flip_match_status(self, tmp_path):
+        # A batch entry of None on refresh must not be read as "not_found" —
+        # that labelling belongs only to the cold paths, which set
+        # set_match_status=True.
+        _conf(
+            tmp_path,
+            "iclr_2026",
+            [_paper(title="A")],
+            [_paper(title="A", external_ids={"CorpusId": 1}, match_status="matched")],
+        )
+        respx.post(BATCH_URL).mock(return_value=httpx.Response(200, json=[None]))
+        await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
+        out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
+        assert out[0].match_status == "matched"
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_refresh_path_posts_corpus_ids(self, tmp_path):
+        _conf(
+            tmp_path,
+            "iclr_2026",
+            [_paper(title="A"), _paper(title="B")],
+            [
+                _paper(title="A", external_ids={"CorpusId": 1}),
+                _paper(title="B", external_ids={"CorpusId": 2}),
+            ],
+        )
+        route = respx.post(BATCH_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {"title": "A", "citationCount": 1},
+                    {"title": "B", "citationCount": 2},
+                ],
+            )
+        )
+        await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
+        import json as _json
+
+        assert _json.loads(route.calls[0].request.content)["ids"] == [
+            "CorpusId:1",
+            "CorpusId:2",
+        ]
 
     @respx.mock
     @pytest.mark.asyncio
@@ -550,6 +629,34 @@ class TestEnrichAll:
             ["corl_2024", "empty_2026"], S2Client(min_interval=0.0), tmp_path
         )
         assert [r.status for r in results] == ["skipped", "nothing-to-do"]
+
+    @pytest.mark.asyncio
+    async def test_one_failure_does_not_stop_the_rest(self, tmp_path, monkeypatch):
+        calls = []
+
+        async def fake_enrich_conference(
+            conf_id, client, data_dir, *, full=False, retry_unmatched=False
+        ):
+            calls.append(conf_id)
+            if conf_id == "boom_2026":
+                raise ValueError("kaboom")
+            return EnrichResult(conf_id, "enriched")
+
+        monkeypatch.setattr(
+            "ppr.enrich.enrich_conference", fake_enrich_conference
+        )
+        results = await enrich_all(
+            ["boom_2026", "fine_2026"], S2Client(min_interval=0.0), tmp_path
+        )
+        # Both conferences were attempted — the failure did not short-circuit
+        # the loop — and the failing one comes back as a "skipped" result
+        # rather than being silently dropped.
+        assert calls == ["boom_2026", "fine_2026"]
+        assert results[0].conf_id == "boom_2026"
+        assert results[0].status == "skipped"
+        assert "kaboom" in results[0].reason
+        assert results[1].conf_id == "fine_2026"
+        assert results[1].status == "enriched"
 
 
 class TestVenueNames:
