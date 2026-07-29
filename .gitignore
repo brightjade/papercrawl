@@ -16,3 +16,6 @@ web/public/data/
 
 # Survey outputs
 outputs/
+
+# Claude Code worktrees
+.claude/worktrees/
