@@ -359,3 +359,27 @@ async def enrich_all(
             logger.exception("Failed to enrich %s", conf_id)
             results.append(EnrichResult(conf_id, "skipped", reason=str(exc)))
     return results
+
+
+def format_enrich_summary(results: list[EnrichResult]) -> str:
+    """Render the per-conference outcome table.
+
+    Skips are printed, not merely logged, so a silently skipped conference can
+    never be mistaken for a successful refresh.
+    """
+    lines = [
+        "",
+        f"{'Conference':<24} {'Status':<14} {'Path':<11} "
+        f"{'Total':>7} {'Refresh':>8} {'Cold':>7} {'Kept':>6}  Note",
+        "-" * 100,
+    ]
+    for r in results:
+        lines.append(
+            f"{r.conf_id:<24} {r.status:<14} {r.path:<11} "
+            f"{r.total:>7} {r.refreshed:>8} {r.cold:>7} {r.kept:>6}  {r.reason}"
+        )
+    skipped = sum(1 for r in results if r.status == "skipped")
+    enriched = sum(1 for r in results if r.status == "enriched")
+    lines.append("")
+    lines.append(f"{enriched} enriched, {skipped} skipped, {len(results)} total.")
+    return "\n".join(lines)

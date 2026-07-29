@@ -663,3 +663,58 @@ class TestVenueNames:
     def test_verified_venue_strings_present(self):
         assert S2_VENUE_NAMES["icml"] == "International Conference on Machine Learning"
         assert S2_VENUE_NAMES["cvpr"] == "CVPR"
+
+
+from ppr.cli import all_conference_ids, build_parser
+from ppr.enrich import format_enrich_summary
+
+
+class TestCliWiring:
+    def test_all_conference_ids_lists_data_dirs(self, tmp_path):
+        (tmp_path / "iclr_2026").mkdir()
+        (tmp_path / "acl_2026").mkdir()
+        (tmp_path / "notadir.txt").write_text("x")
+        assert all_conference_ids(tmp_path) == ["acl_2026", "iclr_2026"]
+
+    def test_enrich_accepts_all_flag_without_ids(self):
+        args = build_parser().parse_args(["enrich", "--all"])
+        assert args.all is True
+        assert args.conferences == []
+
+    def test_enrich_accepts_ids_without_all_flag(self):
+        args = build_parser().parse_args(["enrich", "iclr_2026"])
+        assert args.conferences == ["iclr_2026"]
+        assert args.all is False
+
+    def test_enrich_exposes_full_and_retry_unmatched(self):
+        args = build_parser().parse_args(
+            ["enrich", "--all", "--full", "--retry-unmatched"]
+        )
+        assert args.full is True
+        assert args.retry_unmatched is True
+
+    def test_full_and_retry_unmatched_default_to_false(self):
+        args = build_parser().parse_args(["enrich", "iclr_2026"])
+        assert args.full is False
+        assert args.retry_unmatched is False
+
+
+class TestFormatSummary:
+    def test_reports_every_status_including_skips(self):
+        out = format_enrich_summary(
+            [
+                EnrichResult("iclr_2026", "enriched", "refresh", 5340, 5340, 0, 0),
+                EnrichResult("corl_2024", "skipped", reason="papers.jsonl is empty"),
+                EnrichResult("ghost_2026", "nothing-to-do"),
+            ]
+        )
+        assert "iclr_2026" in out
+        assert "corl_2024" in out
+        assert "papers.jsonl is empty" in out
+        assert "ghost_2026" in out
+
+    def test_counts_skips(self):
+        out = format_enrich_summary(
+            [EnrichResult("a", "skipped", reason="r"), EnrichResult("b", "enriched")]
+        )
+        assert "1 skipped" in out
