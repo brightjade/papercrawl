@@ -82,6 +82,11 @@ class TestApplyEnrichment:
         apply_enrichment(p, dict(FULL_ENTRY, tldr=None))
         assert p.tldr == "Existing summary"
 
+    def test_tldr_is_overwritten_when_api_has_one(self):
+        p = _paper(tldr="Old summary")
+        apply_enrichment(p, dict(FULL_ENTRY, tldr={"text": "New summary"}))
+        assert p.tldr == "New summary"
+
     def test_null_nested_objects_are_safe(self):
         p = apply_enrichment(
             _paper(),
