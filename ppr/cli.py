@@ -183,6 +183,13 @@ def cmd_enrich(args: argparse.Namespace) -> None:
     )
     print(format_enrich_summary(results))
 
+    # `ppr enrich --all` feeds ./build.sh and a data release, so a crashed
+    # conference must not read as success to the calling shell. Guard skips are
+    # a correct outcome and stay exit-0.
+    failures = [r for r in results if r.status == "failed"]
+    if failures:
+        raise SystemExit(1)
+
 
 def cmd_validate(args: argparse.Namespace) -> None:
     from ppr.validate import validate_conference

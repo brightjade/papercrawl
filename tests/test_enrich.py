@@ -5,6 +5,7 @@ import pytest
 from ppr.enrich import (
     apply_enrichment,
     carry_over,
+    check_enrichment_coverage,
     check_guards,
     match_status_for,
     normalize_title,
@@ -200,6 +201,35 @@ class TestCheckGuards:
         assert check_guards([], []) is None
 
 
+def _with_ids(n: int) -> list[Paper]:
+    return [_paper(title=f"P{i}", external_ids={"CorpusId": i + 1}) for i in range(n)]
+
+
+class TestCheckEnrichmentCoverage:
+    def test_first_time_enrichment_is_allowed(self):
+        assert check_enrichment_coverage(_with_ids(3), []) is None
+
+    def test_zero_prior_coverage_is_allowed(self):
+        # A prior file where nothing ever matched has no enrichment to lose.
+        assert check_enrichment_coverage([_paper()] * 3, [_paper()] * 3) is None
+
+    def test_total_loss_of_ids_is_blocked(self):
+        reason = check_enrichment_coverage([_paper()] * 10, _with_ids(10))
+        assert reason is not None
+        assert "10" in reason
+
+    def test_coverage_at_exactly_half_is_allowed(self):
+        papers = _with_ids(5) + [_paper()] * 5
+        assert check_enrichment_coverage(papers, _with_ids(10)) is None
+
+    def test_coverage_just_below_half_is_blocked(self):
+        papers = _with_ids(4) + [_paper()] * 6
+        assert check_enrichment_coverage(papers, _with_ids(10)) is not None
+
+    def test_growth_in_coverage_is_allowed(self):
+        assert check_enrichment_coverage(_with_ids(20), _with_ids(10)) is None
+
+
 class TestWriteEnriched:
     def test_sorts_by_citations_descending(self, tmp_path):
         path = tmp_path / "papers_enriched.jsonl"
@@ -377,8 +407,16 @@ class TestEnrichConference:
             return_value=httpx.Response(
                 200,
                 json=[
-                    {"title": "A", "citationCount": 100},
-                    {"title": "B", "citationCount": 200},
+                    {
+                        "title": "A",
+                        "citationCount": 100,
+                        "externalIds": {"CorpusId": 1},
+                    },
+                    {
+                        "title": "B",
+                        "citationCount": 200,
+                        "externalIds": {"CorpusId": 2},
+                    },
                 ],
             )
         )
@@ -420,7 +458,12 @@ class TestEnrichConference:
             [_paper(title="A", external_ids={"CorpusId": 1}, match_status="mismatch")],
         )
         respx.post(BATCH_URL).mock(
-            return_value=httpx.Response(200, json=[{"title": "A", "citationCount": 5}])
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {"title": "A", "citationCount": 5, "externalIds": {"CorpusId": 1}}
+                ],
+            )
         )
         await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
         out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
@@ -459,8 +502,8 @@ class TestEnrichConference:
             return_value=httpx.Response(
                 200,
                 json=[
-                    {"title": "A", "citationCount": 1},
-                    {"title": "B", "citationCount": 2},
+                    {"title": "A", "citationCount": 1, "externalIds": {"CorpusId": 1}},
+                    {"title": "B", "citationCount": 2, "externalIds": {"CorpusId": 2}},
                 ],
             )
         )
@@ -564,6 +607,113 @@ class TestEnrichConference:
         )
         assert result.status == "skipped"
 
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_full_run_against_a_dry_api_does_not_wipe_enrichment(self, tmp_path):
+        # --full routes every paper cold. If the API then answers nothing, each
+        # paper would be written back with citations, tldr and external IDs
+        # blank while the paper count is unchanged — invisible to check_guards.
+        enriched = [
+            _paper(
+                title=f"P{i}",
+                external_ids={"CorpusId": i + 1},
+                citation_count=i,
+                tldr="Prior summary",
+            )
+            for i in range(10)
+        ]
+        _conf(tmp_path, "iclr_2026", [_paper(title=f"P{i}") for i in range(10)], enriched)
+        path = tmp_path / "iclr_2026" / "papers_enriched.jsonl"
+        before = path.read_bytes()
+        respx.get(BULK_URL).mock(
+            return_value=httpx.Response(200, json={"total": 0, "data": []})
+        )
+        respx.get(MATCH_URL).mock(return_value=httpx.Response(200, json={"data": []}))
+
+        result = await enrich_conference(
+            "iclr_2026", S2Client(min_interval=0.0), tmp_path, full=True
+        )
+
+        assert result.status == "skipped"
+        assert result.reason
+        assert path.read_bytes() == before
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_title_drift_against_a_dry_api_does_not_wipe_enrichment(self, tmp_path):
+        # A scraper change that alters every title makes reconciliation see all
+        # papers as new, routing the whole conference cold with no flag at all.
+        enriched = [
+            _paper(title=f"P{i}", external_ids={"CorpusId": i + 1}, citation_count=i)
+            for i in range(10)
+        ]
+        raw = [_paper(title=f"P{i} & More") for i in range(10)]
+        _conf(tmp_path, "iclr_2026", raw, enriched)
+        path = tmp_path / "iclr_2026" / "papers_enriched.jsonl"
+        before = path.read_bytes()
+        respx.get(BULK_URL).mock(
+            return_value=httpx.Response(200, json={"total": 0, "data": []})
+        )
+        respx.get(MATCH_URL).mock(return_value=httpx.Response(200, json={"data": []}))
+
+        result = await enrich_conference(
+            "iclr_2026", S2Client(min_interval=0.0), tmp_path
+        )
+
+        assert result.status == "skipped"
+        assert path.read_bytes() == before
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_first_time_enrichment_is_written_even_when_api_is_dry(self, tmp_path):
+        _conf(tmp_path, "iclr_2026", [_paper(title=f"P{i}") for i in range(10)])
+        respx.get(BULK_URL).mock(
+            return_value=httpx.Response(200, json={"total": 0, "data": []})
+        )
+        respx.get(MATCH_URL).mock(return_value=httpx.Response(200, json={"data": []}))
+
+        result = await enrich_conference(
+            "iclr_2026", S2Client(min_interval=0.0), tmp_path
+        )
+
+        assert result.status == "enriched"
+        out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
+        assert len(out) == 10
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_healthy_refresh_still_writes(self, tmp_path):
+        enriched = [
+            _paper(title=f"P{i}", external_ids={"CorpusId": i + 1}, citation_count=i)
+            for i in range(10)
+        ]
+        _conf(tmp_path, "iclr_2026", [_paper(title=f"P{i}") for i in range(10)], enriched)
+
+        def _respond(request):
+            import json as _json
+
+            ids = _json.loads(request.content)["ids"]
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "title": i,
+                        "citationCount": 50,
+                        "externalIds": {"CorpusId": int(i.split(":")[1])},
+                    }
+                    for i in ids
+                ],
+            )
+
+        respx.post(BATCH_URL).mock(side_effect=_respond)
+        result = await enrich_conference(
+            "iclr_2026", S2Client(min_interval=0.0), tmp_path
+        )
+
+        assert result.status == "enriched"
+        out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
+        assert all(p.citation_count == 50 for p in out)
+
     @pytest.mark.asyncio
     async def test_missing_conference_is_nothing_to_do(self, tmp_path):
         result = await enrich_conference(
@@ -584,7 +734,16 @@ class TestEnrichConference:
             ],
         )
         respx.post(BATCH_URL).mock(
-            return_value=httpx.Response(200, json=[{"title": "Keep", "citationCount": 1}])
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {
+                        "title": "Keep",
+                        "citationCount": 1,
+                        "externalIds": {"CorpusId": 1},
+                    }
+                ],
+            )
         )
         await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
         out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
@@ -608,7 +767,15 @@ class TestEnrichConference:
 
             ids = _json.loads(request.content)["ids"]
             return httpx.Response(
-                200, json=[{"title": i, "citationCount": 5} for i in ids]
+                200,
+                json=[
+                    {
+                        "title": i,
+                        "citationCount": 5,
+                        "externalIds": {"CorpusId": n},
+                    }
+                    for n, i in enumerate(ids, start=1)
+                ],
             )
 
         respx.post(BATCH_URL).mock(side_effect=_respond)
@@ -649,11 +816,11 @@ class TestEnrichAll:
             ["boom_2026", "fine_2026"], S2Client(min_interval=0.0), tmp_path
         )
         # Both conferences were attempted — the failure did not short-circuit
-        # the loop — and the failing one comes back as a "skipped" result
-        # rather than being silently dropped.
+        # the loop — and the crash comes back as "failed", distinct from the
+        # "skipped" a deliberate guard returns, so the CLI can exit non-zero.
         assert calls == ["boom_2026", "fine_2026"]
         assert results[0].conf_id == "boom_2026"
-        assert results[0].status == "skipped"
+        assert results[0].status == "failed"
         assert "kaboom" in results[0].reason
         assert results[1].conf_id == "fine_2026"
         assert results[1].status == "enriched"
@@ -665,7 +832,9 @@ class TestVenueNames:
         assert S2_VENUE_NAMES["cvpr"] == "CVPR"
 
 
-from ppr.cli import all_conference_ids, build_parser
+import argparse
+
+from ppr.cli import all_conference_ids, build_parser, cmd_enrich
 from ppr.enrich import format_enrich_summary
 
 
@@ -718,3 +887,54 @@ class TestFormatSummary:
             [EnrichResult("a", "skipped", reason="r"), EnrichResult("b", "enriched")]
         )
         assert "1 skipped" in out
+
+    def test_counts_failures_separately_from_skips(self):
+        out = format_enrich_summary(
+            [
+                EnrichResult("a", "skipped", reason="guard"),
+                EnrichResult("b", "failed", reason="kaboom"),
+                EnrichResult("c", "enriched"),
+            ]
+        )
+        assert "1 failed" in out
+        assert "1 skipped" in out
+        assert "kaboom" in out
+
+
+def _enrich_args(**kw) -> argparse.Namespace:
+    base = dict(
+        conferences=["a_2026"], all=False, full=False, retry_unmatched=False,
+        api_key="",
+    )
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+class TestCmdEnrichExitCode:
+    def _patch_results(self, monkeypatch, results):
+        async def fake_enrich_all(*args, **kwargs):
+            return results
+
+        monkeypatch.setattr("ppr.cli.enrich_all", fake_enrich_all)
+
+    def test_a_failed_conference_exits_nonzero(self, monkeypatch, capsys):
+        # ppr enrich --all feeds a data release; a run where a conference
+        # crashed must not look like success to the calling shell script.
+        self._patch_results(
+            monkeypatch, [EnrichResult("a_2026", "failed", reason="kaboom")]
+        )
+        with pytest.raises(SystemExit) as exc:
+            cmd_enrich(_enrich_args())
+        assert exc.value.code == 1
+
+    def test_guard_skips_exit_zero(self, monkeypatch, capsys):
+        # A guard skip is the correct outcome, not an error.
+        self._patch_results(
+            monkeypatch,
+            [
+                EnrichResult("a_2026", "skipped", reason="guard"),
+                EnrichResult("b_2026", "nothing-to-do"),
+                EnrichResult("c_2026", "enriched"),
+            ],
+        )
+        cmd_enrich(_enrich_args())

@@ -90,6 +90,11 @@ def carry_over(raw: Paper, prior: Paper) -> Paper:
 # paper count is treated as a failed crawl rather than a real shrinkage.
 MIN_RAW_RATIO = 0.5
 
+# A run that would leave less than this fraction of the previously matched
+# papers carrying a Semantic Scholar ID is treated as a failed lookup rather
+# than as real data.
+MIN_COVERAGE_RATIO = 0.5
+
 
 def read_papers(path: Path) -> list[Paper]:
     """Read a JSONL paper file. A missing or empty file reads as no papers."""
@@ -118,6 +123,40 @@ def check_guards(raw: list[Paper], enriched: list[Paper]) -> str | None:
             f"papers.jsonl has {len(raw)} papers, under "
             f"{MIN_RAW_RATIO:.0%} of the {len(enriched)} already enriched — "
             f"refusing to overwrite. Re-crawl first."
+        )
+    return None
+
+
+def enrichment_coverage(papers: list[Paper]) -> int:
+    """How many papers carry a Semantic Scholar corpus ID."""
+    return sum(1 for p in papers if (p.external_ids or {}).get("CorpusId"))
+
+
+def check_enrichment_coverage(
+    papers: list[Paper], enriched: list[Paper]
+) -> str | None:
+    """Decide whether the about-to-be-written papers are worth keeping.
+
+    check_guards bounds how many *papers* a run may lose; this bounds how much
+    *enrichment* it may lose, which the paper count cannot see. An API that
+    answers nothing — or a title change that routes every paper cold and finds
+    no match — writes the same papers back with citations, tldrs and external
+    IDs blank. Losing the corpus IDs also costs every future run the fast
+    refresh path, so the damage compounds.
+
+    Returns a human-readable reason to skip, or None to proceed. Coverage is
+    only ever compared against existing enrichment, so a conference being
+    enriched for the first time is never blocked.
+    """
+    prior = enrichment_coverage(enriched)
+    if not prior:
+        return None
+    current = enrichment_coverage(papers)
+    if current < MIN_COVERAGE_RATIO * prior:
+        return (
+            f"only {current} of {len(papers)} papers would keep a Semantic "
+            f"Scholar ID, under {MIN_COVERAGE_RATIO:.0%} of the {prior} matched "
+            f"before — refusing to overwrite. The lookups likely failed; retry."
         )
     return None
 
@@ -172,7 +211,7 @@ S2_VENUE_NAMES: dict[str, str] = {
 @dataclass
 class EnrichResult:
     conf_id: str
-    status: str  # "enriched" | "skipped" | "nothing-to-do"
+    status: str  # "enriched" | "skipped" | "failed" | "nothing-to-do"
     path: str = ""  # "refresh" | "id-cold" | "title-cold" | ""
     total: int = 0
     refreshed: int = 0
@@ -335,6 +374,11 @@ async def enrich_conference(
         await _run_batch(client, http, doi_cold, doi_id_of, set_match_status=True)
         await _run_title_cold(client, http, title_cold, conf_id)
 
+    reason = check_enrichment_coverage(raw, enriched)
+    if reason:
+        logger.warning("Skipping %s: %s", conf_id, reason)
+        return EnrichResult(conf_id, "skipped", reason=reason)
+
     write_enriched(raw, conf_dir / "papers_enriched.jsonl")
 
     return EnrichResult(
@@ -371,8 +415,10 @@ async def enrich_all(
                 )
             )
         except Exception as exc:  # keep going; the summary reports the failure
+            # "failed", never "skipped": a skip is a guard doing its job, a
+            # failure is a bug or an outage, and the CLI exits non-zero on it.
             logger.exception("Failed to enrich %s", conf_id)
-            results.append(EnrichResult(conf_id, "skipped", reason=str(exc)))
+            results.append(EnrichResult(conf_id, "failed", reason=str(exc)))
     return results
 
 
@@ -380,7 +426,8 @@ def format_enrich_summary(results: list[EnrichResult]) -> str:
     """Render the per-conference outcome table.
 
     Skips are printed, not merely logged, so a silently skipped conference can
-    never be mistaken for a successful refresh.
+    never be mistaken for a successful refresh. Failures are counted apart from
+    skips: a skip is an expected outcome, a failure needs someone to look.
     """
     lines = [
         "",
@@ -395,6 +442,13 @@ def format_enrich_summary(results: list[EnrichResult]) -> str:
         )
     skipped = sum(1 for r in results if r.status == "skipped")
     enriched = sum(1 for r in results if r.status == "enriched")
+    failed = sum(1 for r in results if r.status == "failed")
     lines.append("")
-    lines.append(f"{enriched} enriched, {skipped} skipped, {len(results)} total.")
+    lines.append(
+        f"{enriched} enriched, {skipped} skipped, {failed} failed, "
+        f"{len(results)} total."
+    )
+    if failed:
+        names = ", ".join(r.conf_id for r in results if r.status == "failed")
+        lines.append(f"FAILED: {names}")
     return "\n".join(lines)
