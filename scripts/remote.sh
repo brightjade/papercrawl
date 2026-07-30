@@ -58,6 +58,93 @@ git log --oneline -1
 REMOTE
 }
 
+cmd_run() {
+  local do_sync=1
+  if [[ "${1:-}" == "--no-sync" ]]; then
+    do_sync=0
+    shift
+  fi
+  if [[ $# -eq 0 ]]; then
+    echo "run: ppr 인자가 필요합니다 (예: run enrich --all)" >&2
+    exit 1
+  fi
+  if [[ $do_sync -eq 1 ]]; then
+    cmd_sync
+  fi
+
+  local slug session args
+  slug="${1//[^a-zA-Z0-9]/}"
+  session="ppr-${slug}-$(date +%m%d-%H%M)"
+  # 로컬 bash 의 %q 로 인용한 뒤 원격 tmux 의 sh -c 가 다시 파싱한다.
+  # 학회 ID 와 --all 같은 평범한 ASCII 인자에서만 안전하다 — 그게 이 도구가 다루는 전부다.
+  args="$(printf '%q ' "$@")"
+
+  echo "==> 원격 실행: $session"
+  remote_bash "$(printf %q "$PPR_REMOTE_DIR") $(printf %q "$session") $(printf %q "$args")" <<'REMOTE'
+set -euo pipefail
+cd "$1"; session="$2"; args="$3"
+mkdir -p logs
+if tmux has-session -t "$session" 2>/dev/null; then
+  echo "같은 이름의 세션이 이미 있습니다: $session" >&2
+  exit 1
+fi
+tmux new-session -d -s "$session" "uv run ppr $args 2>&1 | tee logs/$session.log"
+sleep 1
+if ! tmux has-session -t "$session" 2>/dev/null; then
+  echo "세션이 즉시 종료됐습니다. 로그를 확인하세요:" >&2
+  tail -20 "logs/$session.log" >&2 || true
+  exit 1
+fi
+REMOTE
+  echo "로그 보기: scripts/remote.sh logs $session"
+}
+
+cmd_ps() {
+  ssh "$PPR_REMOTE_HOST" \
+    "tmux list-sessions -F '#{session_name}  시작: #{session_created_string}' 2>/dev/null | grep '^ppr-' || echo '실행 중인 ppr 세션이 없습니다.'"
+}
+
+cmd_logs() {
+  ssh -t "$PPR_REMOTE_HOST" \
+    "bash -s -- $(printf %q "$PPR_REMOTE_DIR") $(printf %q "${1:-}")" <<'REMOTE'
+set -euo pipefail
+cd "$1"; session="${2:-}"
+if [[ -n "$session" ]]; then
+  log="logs/$session.log"
+else
+  log="$(ls -t logs/*.log 2>/dev/null | head -1 || true)"
+fi
+if [[ -z "$log" || ! -f "$log" ]]; then
+  echo "로그를 찾을 수 없습니다." >&2
+  exit 1
+fi
+echo "==> $log"
+tail -f "$log"
+REMOTE
+}
+
+cmd_attach() {
+  local session="${1:-}"
+  if [[ -z "$session" ]]; then
+    session="$(ssh "$PPR_REMOTE_HOST" \
+      "tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^ppr-' | tail -1" || true)"
+  fi
+  if [[ -z "$session" ]]; then
+    echo "붙을 세션이 없습니다." >&2
+    exit 1
+  fi
+  ssh -t "$PPR_REMOTE_HOST" "tmux attach -t $(printf %q "$session")"
+}
+
+cmd_stop() {
+  if [[ $# -eq 0 ]]; then
+    echo "stop: 세션 이름이 필요합니다" >&2
+    exit 1
+  fi
+  ssh "$PPR_REMOTE_HOST" "tmux kill-session -t $(printf %q "$1")"
+  echo "종료: $1"
+}
+
 usage() {
   cat <<'EOF'
 사용법: scripts/remote.sh <명령> [인자...]
@@ -80,6 +167,11 @@ main() {
   if [[ $# -gt 0 ]]; then shift; fi
   case "$cmd" in
     sync) load_config; cmd_sync "$@" ;;
+    run) load_config; cmd_run "$@" ;;
+    ps) load_config; cmd_ps "$@" ;;
+    logs) load_config; cmd_logs "$@" ;;
+    attach) load_config; cmd_attach "$@" ;;
+    stop) load_config; cmd_stop "$@" ;;
     -h|--help|help|"") usage ;;
     *) echo "알 수 없는 명령: $cmd" >&2; usage >&2; exit 1 ;;
   esac
