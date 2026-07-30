@@ -95,7 +95,7 @@ Conference ID format: `<venue>_<year>` (e.g., `iclr_2025`). Selections indicate 
 |---|---|---|---|---|
 | ICLR | oral, poster | oral, spotlight, poster | oral, spotlight, poster | oral, spotlight, poster |
 | NeurIPS | | oral, spotlight, poster | oral, spotlight, poster | oral, spotlight, poster |
-| ICML | | oral, spotlight, poster | oral, spotlight, poster | oral, poster |
+| ICML | main, spotlight | oral, spotlight, poster | oral, spotlight, poster | oral, poster |
 | AAAI | main | main | main | main |
 | IJCAI | | main | main | main |
 
@@ -116,7 +116,7 @@ NeurIPS also includes `datasets_oral`, `datasets_spotlight`, `datasets_poster` t
 
 | Conference | 2026 | 2025 | 2024 | 2023 |
 |---|---|---|---|---|
-| CVPR | | main | main | main |
+| CVPR | main | main | main | main |
 | ICCV | | main | | main |
 | ECCV | | | main | |
 | WACV | main | main | main | main |

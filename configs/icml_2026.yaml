@@ -1,0 +1,11 @@
+conference:
+  name: "ICML"
+  year: 2026
+  venue_id: "ICML.cc/2026/Conference"
+  # Read from the API, not copied from icml_2025.yaml, which tags its papers
+  # "ICML 2025 oral"/"spotlightposter"/"poster" -- none of which ICML 2026 uses.
+  # `regular` is the base track, named `main` here to match the 61k papers
+  # already tagged that way across the dataset.
+  selections:
+    main: "ICML 2026 regular"
+    spotlight: "ICML 2026 spotlight"

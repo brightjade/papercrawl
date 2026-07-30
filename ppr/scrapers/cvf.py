@@ -249,6 +249,7 @@ CVF_CONFERENCES = {
     "cvpr_2023": {"url": f"{CVF_BASE_URL}/CVPR2023?day=all", "parser": "openaccess"},
     "cvpr_2024": {"url": f"{CVF_BASE_URL}/CVPR2024?day=all", "parser": "openaccess"},
     "cvpr_2025": {"url": f"{CVF_BASE_URL}/CVPR2025?day=all", "parser": "openaccess"},
+    "cvpr_2026": {"url": f"{CVF_BASE_URL}/CVPR2026?day=all", "parser": "openaccess"},
     "iccv_2023": {"url": f"{CVF_BASE_URL}/ICCV2023?day=all", "parser": "openaccess"},
     "wacv_2023": {"url": f"{CVF_BASE_URL}/WACV2023", "parser": "openaccess"},
     "wacv_2024": {"url": f"{CVF_BASE_URL}/WACV2024", "parser": "openaccess"},

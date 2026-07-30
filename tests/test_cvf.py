@@ -414,7 +414,7 @@ class TestCvfScrapersDict:
 
     def test_expected_conference_ids(self):
         expected = {
-            "cvpr_2023", "cvpr_2024", "cvpr_2025",
+            "cvpr_2023", "cvpr_2024", "cvpr_2025", "cvpr_2026",
             "iccv_2023", "iccv_2025",
             "wacv_2023", "wacv_2024", "wacv_2025", "wacv_2026",
             "eccv_2024",
