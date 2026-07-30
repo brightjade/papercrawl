@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 uv sync                                        # Install dependencies
+uv run ppr discover                            # Check tracked venues for new accepted-paper lists
 uv run ppr crawl iclr_2025                     # Crawl one conference
 uv run ppr crawl iclr_2025 neurips_2025        # Crawl multiple (one OpenReview login)
 uv run ppr enrich iclr_2025 neurips_2025        # Enrich with Semantic Scholar metadata
@@ -57,6 +58,9 @@ All source code lives in the `ppr/` package:
 - `ppr/s2_client.py` -- Single point of contact with the Semantic Scholar Graph API. Owns pacing and 429/403 exponential backoff, shared by all three endpoints: `match_title` (one paper by title, heavily throttled to ~0.3 req/s), `get_batch` (up to 500 IDs per request -- `CorpusId:`, `DOI:`), and `bulk_search` (venue+year, 1000 papers per page). Returns raw API dicts.
 - `ppr/enrich.py` -- Per-conference enrichment. Picks the cheapest workable path: **refresh** (batch by `CorpusId` from the existing enriched file), **id-cold** (batch by `DOI` from the crawler's `link`, for DBLP-sourced venues), or **title-cold** (bulk prefetch by venue+year, then per-title matching for the misses). Guards against data loss: a raw `papers.jsonl` that is empty or under 50% of the enriched count is skipped rather than written. Writes atomically via temp file + `os.replace`, sorted by citation count.
 - `ppr/validate.py` -- Cross-references scraped paper counts against DBLP proceedings data. Maps conference IDs to DBLP toc keys, fetches counts via paginated API, compares with configurable tolerance (default 10%). Skips DBLP-sourced conferences (circular validation).
+- `ppr/venues.py` -- Loads `configs/venues.yaml`, the registry of 24 tracked venue prefixes (source, cadence, probe template, announce month). Validation is strict: an unknown source or cadence raises rather than silently skipping the venue.
+- `ppr/discover.py` -- Finds conference-years whose list is published but unregistered. `known_years` comes from `configs/*.yaml` + `SCRAPERS`, never from `data/`, so it runs in CI without the dataset. Every probe reports a **parsed paper count**, never an HTTP status: CVPR 2026 returns 200 with an empty stub, WACV 2027 returns 404 with a 29KB body. Statuses are `live` / `empty` / `not-yet` / `unreachable` / `needs-manual`. DBLP probes pace at 1s with 429 backoff; OpenReview needs credentials (anonymous queries are refused).
+- `ppr/register.py` -- Writes registration entries for mechanical sources. `openreview_selections()` derives a config's `selections` from the venue's actual `venue` values rather than a pattern.
 - `ppr/models.py` -- `Paper` dataclass with `selection` field. `to_dict()` excludes `None` and empty-string fields.
 - `ppr/config.py` -- `CrawlConfig` from YAML. `conference_id` derived from filename, output path derived from that.
 
