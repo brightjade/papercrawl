@@ -7,6 +7,11 @@ import yaml
 
 REGISTRY_PATH = Path(__file__).resolve().parent.parent / "configs" / "venues.yaml"
 
+# `configs/` holds one YAML per conference-year plus this registry file. Anything
+# that derives conference IDs by globbing `configs/*.yaml` must exclude this stem
+# so the registry itself is never mistaken for a conference config.
+REGISTRY_STEM = REGISTRY_PATH.stem
+
 SOURCES = {"openreview", "dblp", "cvf", "usenix", "acl", "aaai", "bespoke"}
 CADENCES = {"annual", "biennial-odd", "biennial-even"}
 

@@ -1,6 +1,9 @@
+from unittest.mock import MagicMock
+
 import pytest
 import yaml
 
+from ppr.cli import _available_conferences, cmd_crawl
 from ppr.venues import (
     CADENCES,
     MANUAL_SOURCES,
@@ -96,3 +99,20 @@ class TestShippedRegistry:
         assert prefixes <= set(load_registry(REGISTRY_PATH)), (
             f"unregistered: {sorted(prefixes - set(load_registry(REGISTRY_PATH)))}"
         )
+
+
+class TestConfigsDirExcludesRegistry:
+    """configs/venues.yaml shares a directory with per-year conference configs.
+    Anything deriving conference IDs by globbing configs/*.yaml must exclude it,
+    or the registry itself gets treated as a bogus conference."""
+
+    def test_venues_not_in_available_conferences(self):
+        assert "venues" not in _available_conferences()
+
+    def test_crawl_venues_reports_unknown_conference(self):
+        """Without the exclusion, `ppr crawl venues` takes the OpenReview branch
+        (configs/venues.yaml exists, "venues" isn't in SCRAPERS) and dies inside
+        CrawlConfig.from_yaml instead of reporting a clean unknown-conference error."""
+        args = MagicMock(conferences=["venues"])
+        with pytest.raises(FileNotFoundError, match="venues"):
+            cmd_crawl(args)

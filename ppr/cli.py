@@ -14,6 +14,7 @@ from ppr.config import CrawlConfig
 from ppr.enrich import enrich_all, format_enrich_summary
 from ppr.models import Paper
 from ppr.s2_client import S2Client
+from ppr.venues import REGISTRY_STEM
 
 CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 def _available_conferences() -> list[str]:
-    from_configs = {p.stem for p in CONFIGS_DIR.glob("*.yaml")}
+    from_configs = {p.stem for p in CONFIGS_DIR.glob("*.yaml") if p.stem != REGISTRY_STEM}
     return sorted(from_configs | SCRAPERS.keys())
 
 
@@ -122,7 +123,10 @@ def cmd_crawl(args: argparse.Namespace) -> None:
 
     # Split into scraped vs OpenReview conferences
     scraped = [c for c in conf_ids if c in SCRAPERS]
-    openreview = [c for c in conf_ids if c not in SCRAPERS and (CONFIGS_DIR / f"{c}.yaml").exists()]
+    openreview = [
+        c for c in conf_ids
+        if c not in SCRAPERS and c != REGISTRY_STEM and (CONFIGS_DIR / f"{c}.yaml").exists()
+    ]
     unknown = [c for c in conf_ids if c not in scraped and c not in openreview]
 
     if unknown:
