@@ -204,6 +204,7 @@ S2_VENUE_NAMES: dict[str, str] = {
     "ijcai": "International Joint Conference on Artificial Intelligence",
     "naacl": "NAACL",
     "neurips": "Neural Information Processing Systems",
+    "usenix_security": "USENIX Security Symposium",
     "wacv": "WACV",
 }
 

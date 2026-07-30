@@ -127,9 +127,9 @@ NeurIPS also includes `datasets_oral`, `datasets_spotlight`, `datasets_poster` t
 
 ### Security
 
-| Conference | 2025 | 2024 | 2023 |
-|---|---|---|---|
-| USENIX Security | main | main | main |
+| Conference | 2026 | 2025 | 2024 | 2023 |
+|---|---|---|---|---|
+| USENIX Security | main | main | main | main |
 
 ### Software Engineering (DBLP)
 

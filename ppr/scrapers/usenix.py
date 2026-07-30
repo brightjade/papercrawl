@@ -26,6 +26,7 @@ USENIX_CONFERENCES = {
     "usenix_security_2023": "usenixsecurity23",
     "usenix_security_2024": "usenixsecurity24",
     "usenix_security_2025": "usenixsecurity25",
+    "usenix_security_2026": "usenixsecurity26",
 }
 
 
