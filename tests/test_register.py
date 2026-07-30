@@ -23,6 +23,12 @@ DBLP_SRC = '''DBLP_CONFERENCES = {
 }
 '''
 
+DBLP_SRC_WITH_COMMENT = '''# icse_2026 will be added once its toc key is known
+DBLP_CONFERENCES = {
+    "icse_2025": {"key": "db/conf/icse/icse2025.bht"},
+}
+'''
+
 CVF_SRC = '''CVF_CONFERENCES = {
     "cvpr_2025": {"url": f"{CVF_BASE_URL}/CVPR2025?day=all", "parser": "openaccess"},
 }
@@ -52,6 +58,18 @@ class TestRegisterDblp:
         p = _module(tmp_path, "dblp.py", "SOMETHING_ELSE = {}\n")
         with pytest.raises(RegistrationError, match="DBLP_CONFERENCES"):
             register_dblp("icse_2026", "k", p)
+
+    def test_id_appearing_only_in_a_comment_does_not_block_registration(self, tmp_path):
+        """The duplicate check must be scoped to the dict's own span.
+
+        `icse_2026` appears in a comment above `DBLP_CONFERENCES`, not inside
+        the dict itself, so registration must still succeed.
+        """
+        p = _module(tmp_path, "dblp.py", DBLP_SRC_WITH_COMMENT)
+        register_dblp("icse_2026", "db/conf/icse/icse2026.bht", p)
+        text = p.read_text()
+        assert '"icse_2026": {"key": "db/conf/icse/icse2026.bht"},' in text
+        assert "icse_2025" in text
 
 
 class TestRegisterCvf:
@@ -110,6 +128,28 @@ class TestOpenreviewSelections:
         with pytest.raises(RegistrationError, match="no papers"):
             openreview_selections(c, "ICLR.cc/2027/Conference")
 
+    def test_all_blank_venues_raises_rather_than_writing_empty_selections(self):
+        """Notes came back, but none carried a venue string.
+
+        Without this guard, `values` empties out after discarding blanks,
+        `len(values) == 1` is false, the loop over an empty set produces `{}`,
+        and the caller would write a config with no selections -- the same
+        failure mode as the corl_2024 bug, just triggered a different way.
+        """
+        client = self._client([""] * 5)
+        with pytest.raises(RegistrationError, match="none carried a venue"):
+            openreview_selections(client, "SOME.cc/2026/Conference")
+
+    def test_colliding_track_words_raises_instead_of_silently_dropping_one(self):
+        """Two distinct venue strings both containing 'poster' must not
+        silently collapse into a single selection with one of them lost."""
+        client = self._client(["NeurIPS 2026 Poster", "NeurIPS 2026 Poster Session"])
+        with pytest.raises(RegistrationError) as exc_info:
+            openreview_selections(client, "NeurIPS.cc/2026/Conference")
+        message = str(exc_info.value)
+        assert "NeurIPS 2026 Poster" in message
+        assert "NeurIPS 2026 Poster Session" in message
+
 
 class TestRenderOpenreviewConfig:
     def test_renders_loadable_yaml(self):
@@ -122,4 +162,18 @@ class TestRenderOpenreviewConfig:
         assert parsed["year"] == 2024
         assert parsed["venue_id"] == "robot-learning.org/CoRL/2024/Conference"
         assert parsed["selections"] == {"main": "CoRL 2024"}
-        assert parsed["api_version"] == 2
+        # api_version is intentionally omitted: it must match the shape of
+        # most existing configs (iclr_2025.yaml, icml_2025.yaml, etc.), which
+        # rely on CrawlConfig's default rather than stating it explicitly.
+        assert "api_version" not in parsed
+
+    def test_omitted_api_version_still_resolves_to_2_through_crawlconfig(self, tmp_path):
+        """Pin the behavior even though the field is gone from the rendered text."""
+        from ppr.config import CrawlConfig
+
+        text = render_openreview_config("CoRL", 2024, "robot-learning.org/CoRL/2024/Conference",
+                                        {"main": "CoRL 2024"})
+        p = tmp_path / "corl_2024.yaml"
+        p.write_text(text)
+        config = CrawlConfig.from_yaml(p)
+        assert config.api_version == 2

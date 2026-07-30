@@ -22,8 +22,6 @@ def _insert_into_dict(path: Path, dict_name: str, conf_id: str, line: str) -> No
     match = re.search(rf"^{re.escape(dict_name)}\s*=\s*\{{", text, re.MULTILINE)
     if not match:
         raise RegistrationError(f"{dict_name} not found in {path}")
-    if f'"{conf_id}"' in text:
-        raise RegistrationError(f"{conf_id} is already registered in {dict_name}")
 
     depth = 0
     for i in range(match.end() - 1, len(text)):
@@ -36,6 +34,12 @@ def _insert_into_dict(path: Path, dict_name: str, conf_id: str, line: str) -> No
                 break
     else:
         raise RegistrationError(f"unbalanced braces in {dict_name} in {path}")
+
+    # Scope the duplicate check to the dict's own span. A conference ID that
+    # merely appears in a comment, a docstring, or a different dict elsewhere
+    # in the file must not block a legitimate registration.
+    if f'"{conf_id}"' in text[match.start():closing]:
+        raise RegistrationError(f"{conf_id} is already registered in {dict_name}")
 
     path.write_text(text[:closing] + f"    {line}\n" + text[closing:], encoding="utf-8")
     logger.info("Registered %s in %s", conf_id, path.name)
@@ -80,6 +84,17 @@ def openreview_selections(client, venue_id: str) -> dict[str, str]:
         values.add(raw.get("value", "") if isinstance(raw, dict) else raw)
     values.discard("")
 
+    if not values:
+        # Notes came back, but every one had a missing or blank `venue` field.
+        # Falling through to the multi-value branch here would return `{}`,
+        # which is the exact corl_2024 failure mode: a config that "resolves"
+        # to no selections, a crawl that matches nothing, and a zero-byte
+        # papers file written with a "success" log line.
+        raise RegistrationError(
+            f"{venue_id} returned {len(notes)} papers but none carried a "
+            "venue string -- nothing to register"
+        )
+
     if len(values) == 1:
         return {"main": next(iter(values))}
 
@@ -87,20 +102,34 @@ def openreview_selections(client, venue_id: str) -> dict[str, str]:
     for value in sorted(values):
         lowered = value.lower().replace(" ", "")
         name = next((w for w in _TRACK_WORDS if w in lowered), None)
-        selections[name or value.lower().replace(" ", "_")] = value
+        key = name or value.lower().replace(" ", "_")
+        if key in selections:
+            raise RegistrationError(
+                f"venue strings {selections[key]!r} and {value!r} both map to "
+                f"selection {key!r} -- name them manually"
+            )
+        selections[key] = value
     return selections
 
 
 def render_openreview_config(
     name: str, year: int, venue_id: str, selections: dict[str, str]
 ) -> str:
-    """Render a `configs/<id>.yaml` body."""
+    """Render a `configs/<id>.yaml` body.
+
+    `api_version` is deliberately omitted. `ppr/config.py`'s
+    `CrawlConfig.from_yaml` defaults it to 2, and that's what the majority of
+    existing OpenReview configs (iclr_2025, icml_2025, neurips_2025,
+    colm_2025, ...) rely on -- only the legacy v1 configs and
+    corl_2024/corl_2025 state it explicitly. Matching the shape of the
+    existing configs means leaving it out and trusting the default, not
+    stating it on every freshly-registered file.
+    """
     lines = [
         "conference:",
         f'  name: "{name}"',
         f"  year: {year}",
         f'  venue_id: "{venue_id}"',
-        "  api_version: 2",
         "  selections:",
     ]
     lines += [f'    {key}: "{value}"' for key, value in selections.items()]
