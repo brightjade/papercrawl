@@ -319,6 +319,18 @@ def scrape_eacl_2024() -> list[Paper]:
     return papers
 
 
+def scrape_eacl_2026() -> list[Paper]:
+    # EACL has never had a scrapeable conference site -- 2023, 2024 and 2026 all
+    # come from the Anthology, whose volume names follow one predictable pattern.
+    # 2026 also publishes eacl-demo (44) and eacl-srw (71); both are excluded, as
+    # demo and student tracks are in every other year.
+    papers = _scrape_anthology(f"{ANTHOLOGY_BASE_URL}/volumes/2026.eacl-long/", "main")
+    papers += _scrape_anthology(f"{ANTHOLOGY_BASE_URL}/volumes/2026.eacl-short/", "main")
+    papers += _scrape_anthology(f"{ANTHOLOGY_BASE_URL}/volumes/2026.findings-eacl/", "findings")
+    papers += _scrape_anthology(f"{ANTHOLOGY_BASE_URL}/volumes/2026.eacl-industry/", "industry")
+    return papers
+
+
 def scrape_coling_2024() -> list[Paper]:
     return _scrape_anthology(f"{ANTHOLOGY_BASE_URL}/volumes/2024.lrec-main/", "main")
 
@@ -345,4 +357,5 @@ SCRAPERS = {
     "acl_2025": scrape_acl_2025,
     "naacl_2025": scrape_naacl_2025,
     "acl_2026": scrape_acl_2026,
+    "eacl_2026": scrape_eacl_2026,
 }

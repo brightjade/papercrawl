@@ -109,7 +109,7 @@ NeurIPS also includes `datasets_oral`, `datasets_spotlight`, `datasets_poster` t
 | EMNLP | | main, findings, industry | main, findings, industry | main, findings, industry |
 | NAACL | | main, findings, industry | main, findings, industry | |
 | COLM | | main | main | |
-| EACL | | | main, findings | main, findings |
+| EACL | main, findings, industry | | main, findings | main, findings |
 | COLING | main | main | |
 
 ### CV (CVF / ECVA)
