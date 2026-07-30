@@ -19,3 +19,7 @@ outputs/
 
 # Claude Code worktrees
 .claude/worktrees/
+
+# Remote execution
+.remote.env
+logs/
