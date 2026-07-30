@@ -935,6 +935,102 @@ class TestEnrichResume:
 
     @respx.mock
     @pytest.mark.asyncio
+    async def test_retry_unmatched_reopens_checkpointed_misses(self, tmp_path):
+        """A checkpointed miss must not silently absorb --retry-unmatched.
+
+        Same trap --full avoids by discarding the checkpoint: the flag would do
+        zero lookups and report the paper under Kept, with nothing to show the
+        user the retry never happened.
+        """
+        _conf(tmp_path, "icml_2026", [_paper(title="Hit"), _paper(title="Miss")])
+        _write_jsonl(
+            tmp_path / "icml_2026" / ".papers_enriched.tmp.jsonl",
+            [
+                _paper(title="Hit", citation_count=5, match_status="matched"),
+                _paper(title="Miss", match_status="not_found"),
+            ],
+        )
+        respx.get(BULK_URL).mock(
+            return_value=httpx.Response(200, json={"total": 0, "data": []})
+        )
+        route = respx.get(MATCH_URL).mock(
+            return_value=httpx.Response(
+                200, json={"data": [{"title": "Miss", "citationCount": 3}]}
+            )
+        )
+        await enrich_conference(
+            "icml_2026", S2Client(min_interval=0.0), tmp_path, retry_unmatched=True
+        )
+
+        assert route.call_count == 1, "the matched paper must stay resumed"
+        assert route.calls[0].request.url.params["query"] == "Miss"
+        out = {p.title: p for p in read_papers(
+            tmp_path / "icml_2026" / "papers_enriched.jsonl"
+        )}
+        assert out["Hit"].citation_count == 5
+        assert out["Miss"].citation_count == 3
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_resuming_twice_across_a_torn_line_loses_nothing(self, tmp_path):
+        """Appending onto a torn line would swallow the next good record."""
+        _conf(tmp_path, "icml_2026", [
+            _paper(title="A"), _paper(title="B"), _paper(title="C")
+        ])
+        ckpt = tmp_path / "icml_2026" / ".papers_enriched.tmp.jsonl"
+        _write_jsonl(ckpt, [_paper(title="A", citation_count=1, match_status="matched")])
+        with open(ckpt, "a", encoding="utf-8") as f:
+            f.write('{"title": "B", "link": "L", "citation_c')  # killed mid-write
+
+        respx.get(BULK_URL).mock(
+            return_value=httpx.Response(200, json={"total": 0, "data": []})
+        )
+        state = {"die_on": "C", "queried": []}
+
+        def _match(request):
+            title = request.url.params["query"]
+            state["queried"].append(title)
+            if title == state["die_on"]:
+                raise RuntimeError("killed")
+            return httpx.Response(
+                200, json={"data": [{"title": title, "citationCount": 9}]}
+            )
+
+        respx.get(MATCH_URL).mock(side_effect=_match)
+
+        # First resume: B is looked up and recorded, then the run dies on C.
+        with pytest.raises(RuntimeError):
+            await enrich_conference("icml_2026", S2Client(min_interval=0.0), tmp_path)
+        assert state["queried"] == ["B", "C"]
+
+        # Second resume: B's record must have survived the torn line.
+        state["die_on"], state["queried"] = None, []
+        await enrich_conference("icml_2026", S2Client(min_interval=0.0), tmp_path)
+        assert state["queried"] == ["C"], "B was recorded and must not be redone"
+
+        out = {p.title: p for p in read_papers(
+            tmp_path / "icml_2026" / "papers_enriched.jsonl"
+        )}
+        assert out["A"].citation_count == 1
+        assert out["B"].citation_count == 9
+        assert out["C"].citation_count == 9
+
+    @pytest.mark.asyncio
+    async def test_nothing_to_do_discards_a_stale_checkpoint(self, tmp_path):
+        """The one success path the delete-on-success rule would otherwise miss."""
+        _conf(tmp_path, "ghost_2026", [])
+        ckpt = tmp_path / "ghost_2026" / ".papers_enriched.tmp.jsonl"
+        _write_jsonl(ckpt, [_paper(title="Ghost", citation_count=1)])
+
+        result = await enrich_conference(
+            "ghost_2026", S2Client(min_interval=0.0), tmp_path
+        )
+
+        assert result.status == "nothing-to-do"
+        assert not ckpt.exists()
+
+    @respx.mock
+    @pytest.mark.asyncio
     async def test_half_written_last_line_is_ignored(self, tmp_path):
         """A killed process can leave a partial line; it must not fail the run."""
         _conf(tmp_path, "icml_2026", [_paper(title="Done"), _paper(title="Torn")])

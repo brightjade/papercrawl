@@ -219,11 +219,14 @@ class Checkpoint:
 
         A file left behind by a killed process can end in a half-written line,
         so unparseable lines are dropped rather than failing the run — the
-        papers they describe simply get looked up again.
+        papers they describe simply get looked up again. The file is then
+        rewritten from what did parse, because appending onto a torn line would
+        swallow the next good record into it and lose that paper as well.
         """
         if not self.path.exists():
             return {}
         done: dict[str, Paper] = {}
+        torn = False
         with open(self.path, encoding="utf-8") as f:
             for line in f:
                 if not line.strip():
@@ -231,14 +234,34 @@ class Checkpoint:
                 try:
                     paper = Paper.from_dict(json.loads(line))
                 except (ValueError, KeyError):
-                    logger.warning(
-                        "Ignoring an unparseable line in %s — it will be "
-                        "looked up again",
-                        self.path,
-                    )
+                    torn = True
                     continue
                 done[normalize_title(paper.title)] = paper
+        if torn:
+            logger.warning(
+                "Dropping an unparseable line from %s — the papers it covered "
+                "will be looked up again",
+                self.path,
+            )
+            self._rewrite(list(done.values()))
         return done
+
+    def _rewrite(self, papers: list[Paper]) -> None:
+        """Replace the file with `papers`, atomically.
+
+        Only used to heal a torn file, so that every later append lands on a
+        line of its own.
+        """
+        self.close()
+        tmp = self.path.with_suffix(self.path.suffix + ".rewrite")
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                for paper in papers:
+                    f.write(paper.to_json() + "\n")
+            os.replace(tmp, self.path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
 
     def record(self, papers: list[Paper]) -> None:
         """Append finished papers and flush, so a kill loses only what is in flight."""
@@ -478,15 +501,29 @@ async def enrich_conference(
     reason = check_guards(raw, enriched)
     if reason:
         logger.warning("Skipping %s: %s", conf_id, reason)
+        # The checkpoint is kept here, unlike on a coverage-guard skip: this
+        # guard fires before any lookup runs, so it never rejects the results
+        # the checkpoint holds — those are still someone's unfinished run.
         return EnrichResult(conf_id, "skipped", reason=reason)
 
     if not raw:
+        # A success path like any other, so it clears the checkpoint too;
+        # leaving one here would let it be consumed by a later, unrelated crawl.
+        checkpoint.discard()
         return EnrichResult(conf_id, "nothing-to-do")
 
     # papers.jsonl stays authoritative for membership and for identity: the
     # checkpoint contributes enrichment to papers still in the raw file and
     # nothing else, so one it holds that the latest crawl dropped stays dropped.
     done = checkpoint.restore()
+    if retry_unmatched:
+        # --retry-unmatched exists to give previously unmatchable papers another
+        # chance. A checkpoint entry recording that very failure would absorb
+        # the retry — zero lookups, and the paper reported under Kept — which is
+        # the trap --full avoids by discarding the checkpoint outright. Dropping
+        # only the unmatched entries reopens them while the matched ones, which
+        # cost just as much to obtain, stay resumed.
+        done = {k: p for k, p in done.items() if p.match_status == "matched"}
     todo: list[Paper] = []
     for paper in raw:
         finished = done.get(normalize_title(paper.title))
