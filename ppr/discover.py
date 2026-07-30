@@ -144,7 +144,14 @@ def _probe_cvf(venue: Venue, year: int) -> ProbeResult:
                 scope = btn.find_next_sibling("div", class_="accordion-content")
                 break
         if scope is None:
-            return _result(venue, year, "not-yet", 0, url)
+            # The marker text is on the page, so the year is genuinely
+            # published -- but no accordion section parsed for it. That is
+            # the broken-selector signature `_classify_page` exists to catch,
+            # not an unpublished conference, so this must not read as `not-yet`.
+            return _result(
+                venue, year, "empty", 0, url,
+                "year marker present but its accordion section did not parse",
+            )
 
     count = len(scope.select("dt.ptitle"))
     return _result(venue, year, _classify_page(count), count, url)
@@ -261,7 +268,7 @@ def _probe_dblp_key(venue: Venue, year: int, key: str, number: str | None = None
                 total = sum(1 for hit in hits if hit.get("info", {}).get("number") == number)
             else:
                 total = int(hits_data["@total"])
-        except (KeyError, TypeError, ValueError):
+        except (KeyError, TypeError, ValueError, AttributeError):
             return _result(venue, year, "unreachable", 0, url, "unparseable response")
 
         status = "live" if total > 0 else "not-yet"

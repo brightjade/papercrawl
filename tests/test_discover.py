@@ -151,6 +151,18 @@ class TestCvfProbe:
         assert r.count == 5
         assert r.status == "empty"  # below MIN_LIVE_PAPERS, unlike the 40 in 2024's section
 
+    def test_ecva_marker_present_but_no_matching_section_is_empty_not_not_yet(self):
+        """The marker proves the year is on the page; a missing accordion section
+        is a redesign the selector didn't survive, not an unpublished conference."""
+        v = _venue(prefix="eccv", name="ECCV", cadence="biennial-even",
+                   probe={"url": "https://ecva.test/papers.php", "marker": "ECCV {year}"})
+        html = "<html>ECCV 2026 papers are up, but the accordion markup changed.</html>"
+        with patch("ppr.discover.requests.get", return_value=_response(200, html)):
+            r = probe(v, 2026)
+        assert r.status == "empty"
+        assert r.count == 0
+        assert "did not parse" in r.note
+
 
 class TestUsenixProbe:
     def test_populated_page_is_live(self):
@@ -299,6 +311,19 @@ class TestDblpProbe:
         with patch("ppr.discover.requests.get", return_value=resp):
             out = probe(v, 2026)
         assert out.count == 1
+
+    def test_number_filter_degrades_gracefully_on_malformed_payload(self, no_sleep):
+        """The number-filter path must fail the same way the plain path does --
+        `unreachable`, not an uncaught AttributeError -- on a malformed response."""
+        v = _venue(prefix="issta", name="ISSTA", source="dblp", probe={"toc": [
+            {"key": "db/journals/pacmse/pacmse{pacmse_vol}.bht", "number": "ISSTA"},
+        ]})
+        resp = _response(200)
+        resp.json = lambda: {"result": {"hits": ["not", "a", "dict"]}}
+        with patch("ppr.discover.requests.get", return_value=resp):
+            out = probe(v, 2026)
+        assert out.status == "unreachable"
+        assert out.note == "unparseable response"
 
 
 class TestOpenreviewProbe:
