@@ -116,6 +116,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum allowed relative difference (default: 0.1 = 10%%).",
     )
 
+    # discover
+    discover_parser = subparsers.add_parser(
+        "discover", help="Check tracked venues for newly published accepted-paper lists"
+    )
+    discover_parser.add_argument(
+        "--json", action="store_true",
+        help="Emit machine-readable JSON instead of a table.",
+    )
+    discover_parser.add_argument(
+        "--venue", action="append", default=[],
+        help="Limit the sweep to these venue prefixes (repeatable).",
+    )
+    _add_auth_args(discover_parser)
+
     return parser
 
 
@@ -219,6 +233,53 @@ def cmd_validate(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def cmd_discover(args: argparse.Namespace) -> None:
+    from datetime import date
+
+    from ppr.discover import (
+        discover,
+        format_discover_table,
+        known_conference_ids,
+        results_to_json,
+        stale_empty,
+    )
+    from ppr.venues import load_registry
+
+    registry = load_registry()
+    if args.venue:
+        registry = {k: v for k, v in registry.items() if k in args.venue}
+
+    # OpenReview refuses anonymous venueid queries, so probe those venues only
+    # when credentials exist. Without them the sweep still covers the rest --
+    # five unprobed venues must not read as "nothing new".
+    or_client = None
+    if args.username and args.password:
+        try:
+            or_client = create_openreview_client(
+                username=args.username, password=args.password
+            )
+        except Exception as exc:
+            logger.warning("OpenReview login failed (%s); those venues will be skipped", exc)
+    else:
+        logger.warning("No OpenReview credentials; those venues will be reported unreachable")
+
+    today = date.today()
+    results = discover(
+        registry, known_conference_ids(), today.year, openreview_client=or_client
+    )
+    stale = stale_empty(results, registry, today.month)
+    if args.json:
+        print(results_to_json(results, stale=stale))
+    else:
+        print(format_discover_table(results))
+        if stale:
+            print(
+                "\nPast their usual announce month but still parsing 0 papers "
+                "(possible broken selector): "
+                + ", ".join(r.conf_id for r in stale)
+            )
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -227,6 +288,7 @@ def main() -> None:
         "crawl": cmd_crawl,
         "enrich": cmd_enrich,
         "validate": cmd_validate,
+        "discover": cmd_discover,
     }
 
     if args.command in commands:

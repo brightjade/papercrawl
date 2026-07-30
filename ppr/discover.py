@@ -1,5 +1,6 @@
 """Find conference-years that have published a list we have not registered."""
 
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -320,3 +321,93 @@ def probe(venue: Venue, year: int, *, openreview_client=None) -> ProbeResult:
     if venue.source == "openreview":
         return _probe_openreview(venue, year, openreview_client)
     raise ValueError(f"no probe for source {venue.source!r}")
+
+
+def discover(
+    registry: dict[str, Venue],
+    known_ids: set[str],
+    today_year: int,
+    *,
+    openreview_client=None,
+) -> list[ProbeResult]:
+    """Probe every plausibly-missing conference-year across the registry."""
+    results: list[ProbeResult] = []
+    for prefix, venue in sorted(registry.items()):
+        for year in missing_years(prefix, venue.cadence, known_ids, today_year):
+            logger.info("Probing %s %s...", venue.name, year)
+            results.append(probe(venue, year, openreview_client=openreview_client))
+    return results
+
+
+def stale_empty(
+    results: list[ProbeResult], registry: dict[str, Venue], today_month: int
+) -> list[ProbeResult]:
+    """`empty` results whose announce month has passed -- probable broken selectors.
+
+    A page that responds but yields no papers is normal before the venue
+    publishes. After the month it usually publishes in, the likelier
+    explanation is that the site changed and our selector no longer matches.
+    """
+    return [
+        r
+        for r in results
+        if r.status == "empty"
+        and r.prefix in registry
+        and registry[r.prefix].announce_month < today_month
+    ]
+
+
+def format_discover_table(results: list[ProbeResult]) -> str:
+    """Human-readable sweep report, live venues first."""
+    order = {"live": 0, "needs-manual": 1, "empty": 2, "unreachable": 3, "not-yet": 4}
+    rows = sorted(results, key=lambda r: (order.get(r.status, 9), r.conf_id))
+
+    lines = [
+        "",
+        f"{'Conference':<24} {'Status':<14} {'Papers':>7}  URL",
+        "-" * 100,
+    ]
+    for r in rows:
+        count = str(r.count) if r.count else "-"
+        note = f"  ({r.note})" if r.note else ""
+        lines.append(f"{r.conf_id:<24} {r.status:<14} {count:>7}  {r.url}{note}")
+
+    live = [r for r in results if r.status == "live"]
+    manual = [r for r in results if r.status == "needs-manual"]
+    lines.append("")
+    if live:
+        lines.append(
+            f"{len(live)} new list(s) ready to register: "
+            + ", ".join(f"{r.conf_id} ({r.count})" for r in live)
+        )
+    else:
+        lines.append("no new lists ready to register.")
+    if manual:
+        lines.append(
+            f"{len(manual)} venue(s) need a hand-written scraper: "
+            + ", ".join(r.conf_id for r in manual)
+        )
+    return "\n".join(lines)
+
+
+def results_to_json(results: list[ProbeResult], stale: list[ProbeResult] | None = None) -> str:
+    """Machine-readable sweep report for the scheduled workflow.
+
+    `stale_empty` is computed here rather than left to the caller: the workflow
+    that consumes this is JavaScript and has no access to the registry's
+    announce months, so the broken-selector signal has to arrive precomputed.
+    """
+    return json.dumps(
+        {
+            "results": [
+                {
+                    "conf_id": r.conf_id, "prefix": r.prefix, "year": r.year,
+                    "status": r.status, "count": r.count, "url": r.url, "note": r.note,
+                }
+                for r in results
+            ],
+            "live_count": sum(1 for r in results if r.status == "live"),
+            "stale_empty": [r.conf_id for r in (stale or [])],
+        },
+        indent=2,
+    )

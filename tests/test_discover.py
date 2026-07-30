@@ -372,3 +372,125 @@ class TestManualSources:
         with patch("ppr.discover.requests.get") as g:
             probe(v, 2027)
         assert g.call_count == 0
+
+
+import json as _json
+
+from ppr.discover import (
+    discover,
+    format_discover_table,
+    results_to_json,
+    stale_empty,
+)
+
+
+def _pr(conf_id, status, count=0, prefix=None, year=2026, note=""):
+    return ProbeResult(
+        conf_id=conf_id, prefix=prefix or conf_id.rsplit("_", 1)[0],
+        year=year, status=status, count=count, url="https://x.test", note=note,
+    )
+
+
+class TestDiscoverSweep:
+    def test_probes_every_missing_year_of_every_venue(self):
+        reg = {
+            "icse": Venue("icse", "ICSE", "dblp", "annual", {"toc": "t{year}"}, 12),
+            "acl": Venue("acl", "ACL", "acl", "annual", {"url": "u{year}"}, 5),
+        }
+        known = {"icse_2025", "acl_2025"}
+        with patch("ppr.discover.probe", side_effect=lambda v, y, **k: _pr(f"{v.prefix}_{y}", "not-yet")) as p:
+            out = discover(reg, known, 2026)
+        assert {c.args[1] for c in p.call_args_list} == {2026, 2027}
+        assert len(out) == 4
+
+    def test_venue_with_nothing_registered_is_skipped(self):
+        reg = {"new": Venue("new", "New", "dblp", "annual", {"toc": "t{year}"}, 1)}
+        with patch("ppr.discover.probe") as p:
+            assert discover(reg, set(), 2026) == []
+        assert p.call_count == 0
+
+    def test_openreview_client_is_forwarded(self):
+        reg = {"iclr": Venue("iclr", "ICLR", "openreview", "annual", {"venue_id": "v{year}"}, 1)}
+        client = MagicMock()
+        with patch("ppr.discover.probe", return_value=_pr("iclr_2027", "not-yet")) as p:
+            discover(reg, {"iclr_2026"}, 2026, openreview_client=client)
+        assert p.call_args.kwargs["openreview_client"] is client
+
+    def test_missing_credentials_do_not_abort_the_sweep(self):
+        """No OpenReview secret in CI must degrade coverage, not end the run."""
+        reg = {
+            "iclr": Venue("iclr", "ICLR", "openreview", "annual", {"venue_id": "v{year}"}, 1),
+            "icse": Venue("icse", "ICSE", "dblp", "annual", {"toc": "t{year}"}, 12),
+        }
+        with patch("ppr.discover._probe_dblp", return_value=_pr("icse_2026", "live", 245)):
+            out = discover(reg, {"iclr_2025", "icse_2025"}, 2025, openreview_client=None)
+        by_status = {r.prefix: r.status for r in out}
+        assert by_status["iclr"] == "unreachable"
+        assert by_status["icse"] == "live"
+
+
+class TestStaleEmpty:
+    def test_flags_empty_past_the_announce_month(self):
+        reg = {"cvpr": Venue("cvpr", "CVPR", "cvf", "annual", {"url": "u"}, 2)}
+        out = stale_empty([_pr("cvpr_2026", "empty")], reg, today_month=7)
+        assert [r.conf_id for r in out] == ["cvpr_2026"]
+
+    def test_ignores_empty_before_the_announce_month(self):
+        reg = {"wacv": Venue("wacv", "WACV", "cvf", "annual", {"url": "u"}, 10)}
+        assert stale_empty([_pr("wacv_2027", "empty")], reg, today_month=7) == []
+
+    def test_ignores_non_empty_statuses(self):
+        reg = {"cvpr": Venue("cvpr", "CVPR", "cvf", "annual", {"url": "u"}, 2)}
+        results = [_pr("cvpr_2026", "not-yet"), _pr("cvpr_2027", "live", 2000)]
+        assert stale_empty(results, reg, today_month=12) == []
+
+
+class TestOutputFormats:
+    def test_table_shows_every_status_and_count(self):
+        out = format_discover_table([
+            _pr("usenix_security_2026", "live", 381),
+            _pr("cvpr_2026", "empty"),
+            _pr("acl_2026", "needs-manual"),
+        ])
+        assert "usenix_security_2026" in out and "381" in out
+        assert "live" in out and "empty" in out and "needs-manual" in out
+
+    def test_table_reports_when_nothing_is_live(self):
+        assert "no new" in format_discover_table([_pr("cvpr_2026", "not-yet")]).lower()
+
+    def test_json_round_trips_every_field(self):
+        payload = _json.loads(results_to_json([_pr("usenix_security_2026", "live", 381, note="n")]))
+        row = payload["results"][0]
+        assert row == {
+            "conf_id": "usenix_security_2026", "prefix": "usenix_security",
+            "year": 2026, "status": "live", "count": 381,
+            "url": "https://x.test", "note": "n",
+        }
+        assert payload["live_count"] == 1
+
+    def test_json_is_valid_when_empty(self):
+        payload = _json.loads(results_to_json([]))
+        assert payload["results"] == []
+        assert payload["live_count"] == 0
+        assert payload["stale_empty"] == []
+
+    def test_json_carries_stale_empty_for_the_workflow(self):
+        """The workflow is JS and cannot recompute this -- it must arrive in the JSON."""
+        stale = [_pr("cvpr_2026", "empty")]
+        payload = _json.loads(results_to_json([_pr("cvpr_2026", "empty")], stale=stale))
+        assert payload["stale_empty"] == ["cvpr_2026"]
+
+
+class TestCliWiring:
+    def test_discover_subcommand_exists(self):
+        from ppr.cli import build_parser
+        args = build_parser().parse_args(["discover"])
+        assert args.command == "discover"
+        assert args.json is False
+        assert args.venue == []
+
+    def test_json_and_venue_flags(self):
+        from ppr.cli import build_parser
+        args = build_parser().parse_args(["discover", "--json", "--venue", "cvpr", "--venue", "iclr"])
+        assert args.json is True
+        assert args.venue == ["cvpr", "iclr"]
