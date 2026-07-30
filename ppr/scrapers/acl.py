@@ -155,6 +155,18 @@ def scrape_acl_2025() -> list[Paper]:
     })
 
 
+def scrape_acl_2026() -> list[Paper]:
+    # 2026 renamed every track path: main_papers -> accepted_papers,
+    # find_papers -> findings, ind_papers -> industry. The page markup is
+    # unchanged, so the shared <li><strong>/<em> parser still applies.
+    # /program/srw_papers/ exists too but is excluded, as in every other year.
+    return _scrape_separate_pages("https://2026.aclweb.org", {
+        "main": "/program/accepted_papers/",
+        "findings": "/program/findings/",
+        "industry": "/program/industry/",
+    })
+
+
 def scrape_naacl_2025() -> list[Paper]:
     return _scrape_single_page(
         "https://2025.naacl.org/program/accepted_papers/",
@@ -332,4 +344,5 @@ SCRAPERS = {
     "emnlp_2025": scrape_emnlp_2025,
     "acl_2025": scrape_acl_2025,
     "naacl_2025": scrape_naacl_2025,
+    "acl_2026": scrape_acl_2026,
 }

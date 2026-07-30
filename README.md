@@ -103,13 +103,13 @@ NeurIPS also includes `datasets_oral`, `datasets_spotlight`, `datasets_poster` t
 
 ### NLP
 
-| Conference | 2025 | 2024 | 2023 |
-|---|---|---|---|
-| ACL | main, findings, industry | main, findings | main, findings, industry |
-| EMNLP | main, findings, industry | main, findings, industry | main, findings, industry |
-| NAACL | main, findings, industry | main, findings, industry | |
-| COLM | main | main | |
-| EACL | | main, findings | main, findings |
+| Conference | 2026 | 2025 | 2024 | 2023 |
+|---|---|---|---|---|
+| ACL | main, findings, industry | main, findings, industry | main, findings | main, findings, industry |
+| EMNLP | | main, findings, industry | main, findings, industry | main, findings, industry |
+| NAACL | | main, findings, industry | main, findings, industry | |
+| COLM | | main | main | |
+| EACL | | | main, findings | main, findings |
 | COLING | main | main | |
 
 ### CV (CVF / ECVA)
