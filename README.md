@@ -76,6 +76,11 @@ ppr enrich --all                      # refresh every conference under data/
 ppr validate iclr_2025
 ppr validate iclr_2025 neurips_2025 --tolerance 0.15
 
+# Check tracked venues for accepted-paper lists we haven't registered yet
+ppr discover
+ppr discover --venue cvpr --venue iclr   # limit the sweep to some venues
+ppr discover --json                      # machine-readable, for the monthly workflow
+
 # Build static JSON for web app
 ./build.sh
 ```
@@ -127,9 +132,9 @@ NeurIPS also includes `datasets_oral`, `datasets_spotlight`, `datasets_poster` t
 
 ### Security
 
-| Conference | 2025 | 2024 | 2023 |
-|---|---|---|---|
-| USENIX Security | main | main | main |
+| Conference | 2026 | 2025 | 2024 | 2023 |
+|---|---|---|---|---|
+| USENIX Security | main | main | main | main |
 
 ### Software Engineering (DBLP)
 

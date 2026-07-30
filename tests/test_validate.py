@@ -2,6 +2,10 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from ppr import dblp_client
+from ppr.dblp_client import DblpUnavailable
 from ppr.validate import (
     DBLP_VALIDATION_KEYS,
     DBLP_SOURCE_IDS,
@@ -9,6 +13,14 @@ from ppr.validate import (
     fetch_dblp_count,
     validate_conference,
 )
+
+
+@pytest.fixture(autouse=True)
+def paced_client(monkeypatch):
+    """Validation now shares the discovery sweep's DBLP pacing, which means a
+    test that did not stub the sleep would wait out the real crawl delay."""
+    monkeypatch.setattr("ppr.dblp_client.time.sleep", lambda *_: None)
+    monkeypatch.setattr(dblp_client, "_last_request", 0.0)
 
 
 def _make_dblp_response(total: int, hits: list[dict] | None = None) -> dict:
@@ -30,83 +42,138 @@ def _make_dblp_response(total: int, hits: list[dict] | None = None) -> dict:
     }
 
 
+def _resp(payload: dict, status: int = 200) -> MagicMock:
+    r = MagicMock()
+    r.status_code = status
+    r.headers = {}
+    r.json.return_value = payload
+    return r
+
+
 class TestFetchDblpCount:
-    @patch("ppr.validate.requests.get")
+    @patch("ppr.dblp_client.requests.get")
     def test_single_key_counts_papers(self, mock_get):
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = _make_dblp_response(150)
-        mock_resp.raise_for_status = MagicMock()
-        mock_get.return_value = mock_resp
+        mock_get.return_value = _resp(_make_dblp_response(150))
 
         count = fetch_dblp_count(["db/conf/iclr/iclr2023.bht"])
         assert count == 150
 
-    @patch("ppr.validate.time.sleep")
-    @patch("ppr.validate.requests.get")
-    def test_multiple_keys_sums_counts(self, mock_get, mock_sleep):
-        resp1 = MagicMock()
-        resp1.json.return_value = _make_dblp_response(100)
-        resp1.raise_for_status = MagicMock()
-        resp2 = MagicMock()
-        resp2.json.return_value = _make_dblp_response(50)
-        resp2.raise_for_status = MagicMock()
-        mock_get.side_effect = [resp1, resp2]
+    @patch("ppr.dblp_client.requests.get")
+    def test_multiple_keys_sums_counts(self, mock_get):
+        mock_get.side_effect = [
+            _resp(_make_dblp_response(100)),
+            _resp(_make_dblp_response(50)),
+        ]
 
         count = fetch_dblp_count(["key1.bht", "key2.bht"])
         assert count == 150
 
-    @patch("ppr.validate.requests.get")
+    @patch("ppr.dblp_client.requests.get")
     def test_zero_total_returns_zero(self, mock_get):
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {
-            "result": {"hits": {"@total": "0", "@sent": "0", "@first": "0"}}
-        }
-        mock_resp.raise_for_status = MagicMock()
-        mock_get.return_value = mock_resp
+        mock_get.return_value = _resp(
+            {"result": {"hits": {"@total": "0", "@sent": "0", "@first": "0"}}}
+        )
 
         count = fetch_dblp_count(["db/conf/colm/colm2024.bht"])
         assert count == 0
 
-    @patch("ppr.validate.time.sleep")
-    @patch("ppr.validate.requests.get")
-    def test_paginates_when_more_than_1000(self, mock_get, mock_sleep):
+    @patch("ppr.dblp_client.requests.get")
+    def test_paginates_when_more_than_1000(self, mock_get):
         page1_hits = [
             {"info": {"title": f"P{i}.", "type": "Conference and Workshop Papers"}}
             for i in range(1000)
         ]
-        resp1 = MagicMock()
-        resp1.json.return_value = _make_dblp_response(1200, page1_hits)
-        resp1.raise_for_status = MagicMock()
-
         page2_hits = [
             {"info": {"title": f"Q{i}.", "type": "Conference and Workshop Papers"}}
             for i in range(200)
         ]
-        resp2 = MagicMock()
-        resp2.json.return_value = _make_dblp_response(1200, page2_hits)
-        resp2.raise_for_status = MagicMock()
-
-        mock_get.side_effect = [resp1, resp2]
+        mock_get.side_effect = [
+            _resp(_make_dblp_response(1200, page1_hits)),
+            _resp(_make_dblp_response(1200, page2_hits)),
+        ]
 
         count = fetch_dblp_count(["db/conf/cvpr/cvpr2023.bht"])
         assert count == 1200
         assert mock_get.call_count == 2
-        mock_sleep.assert_called_once_with(1)
 
-    @patch("ppr.validate.requests.get")
+    @patch("ppr.dblp_client.requests.get")
     def test_subtracts_editorship_entries(self, mock_get):
         hits = [
             {"info": {"title": "Proceedings", "type": "Editorship"}},
             {"info": {"title": "Paper 1.", "type": "Conference and Workshop Papers"}},
             {"info": {"title": "Paper 2.", "type": "Conference and Workshop Papers"}},
         ]
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = _make_dblp_response(3, hits)
-        mock_resp.raise_for_status = MagicMock()
-        mock_get.return_value = mock_resp
+        mock_get.return_value = _resp(_make_dblp_response(3, hits))
 
         count = fetch_dblp_count(["db/conf/iclr/iclr2023.bht"])
         assert count == 2
+
+    @patch("ppr.dblp_client.requests.get")
+    def test_goes_through_the_shared_client_with_its_pacing(self, mock_get):
+        """One implementation of how to talk to DBLP: validation must not carry
+        its own interval, or the two subsystems would pace independently
+        against one host that throttles on total volume."""
+        mock_get.return_value = _resp(_make_dblp_response(10))
+        fetch_dblp_count(["db/conf/iclr/iclr2023.bht"])
+        assert mock_get.call_args.kwargs["headers"] is dblp_client.HEADERS
+        assert mock_get.call_args.args[0] == dblp_client.API_URL
+
+
+class TestThrottlingIsNotACount:
+    @patch("ppr.dblp_client.requests.get")
+    def test_a_throttled_key_raises_instead_of_returning_a_partial_count(self, mock_get):
+        """Returning the papers counted so far -- as this did on any
+        RequestException, 429 included -- hands a short number to the caller,
+        which compares it and announces a mismatch that never existed."""
+        page1_hits = [
+            {"info": {"title": f"P{i}.", "type": "Conference and Workshop Papers"}}
+            for i in range(1000)
+        ]
+        mock_get.side_effect = [
+            _resp(_make_dblp_response(1200, page1_hits)),
+            *[_resp({}, status=429)] * dblp_client.MAX_RETRIES,
+        ]
+
+        with pytest.raises(DblpUnavailable):
+            fetch_dblp_count(["db/conf/cvpr/cvpr2023.bht"])
+
+    def test_validate_reports_error_not_a_count_mismatch(self, tmp_path, monkeypatch):
+        """`ppr validate` is what the skill tells the operator to run right
+        after registering a DBLP venue, so a throttled run reading as FAIL
+        would fire on the happy path."""
+        conf_dir = tmp_path / "iclr_2023"
+        conf_dir.mkdir()
+        (conf_dir / "papers.jsonl").write_text(
+            "\n".join(json.dumps({"title": f"P{i}", "link": "", "authors": []}) for i in range(100))
+        )
+        monkeypatch.setattr("ppr.validate.DATA_DIR", tmp_path)
+
+        with patch(
+            "ppr.validate.fetch_dblp_count",
+            side_effect=DblpUnavailable("HTTP 429 after 5 attempts"),
+        ):
+            result = validate_conference("iclr_2023")
+
+        assert result.status == "ERROR"
+        assert result.status != "FAIL"
+        assert result.scraped == 100
+        assert "429" in result.message
+
+    def test_an_error_row_does_not_fail_the_command(self, capsys, monkeypatch):
+        """ERROR means "we do not know", like SKIP and NO_DATA. Only a real
+        count disagreement is worth a non-zero exit."""
+        import argparse
+
+        from ppr.cli import cmd_validate
+
+        monkeypatch.setattr(
+            "ppr.validate.validate_conference",
+            lambda conf_id, tolerance=0.1: ValidationResult(
+                conf_id, "ERROR", scraped=100, message="DBLP did not answer"
+            ),
+        )
+        cmd_validate(argparse.Namespace(conferences=["iclr_2023"], tolerance=0.1))
+        assert "ERROR" in capsys.readouterr().out
 
 
 class TestValidateConference:

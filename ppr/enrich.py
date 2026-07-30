@@ -3,14 +3,16 @@
 import json
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TextIO
 
 import httpx
 from tqdm import tqdm
 
 from ppr.models import Paper
-from ppr.s2_client import S2Client
+from ppr.s2_client import BATCH_CHUNK_SIZE, S2Client
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +186,110 @@ def write_enriched(papers: list[Paper], path: Path) -> None:
         raise
 
 
+# Suffix of the per-conference checkpoint file. The leading dot on the stem
+# keeps it out of directory listings and out of anything globbing "*.jsonl".
+TMP_SUFFIX = ".tmp.jsonl"
+
+
+def checkpoint_path(conf_dir: Path) -> Path:
+    """Where a run streams cold-path progress: `<conf_dir>/.papers_enriched.tmp.jsonl`."""
+    return conf_dir / f".papers_enriched{TMP_SUFFIX}"
+
+
+class Checkpoint:
+    """Append-only log of papers whose Semantic Scholar lookup has finished.
+
+    papers_enriched.jsonl is written once, at the end, so without this a run
+    killed at 277 of 381 papers loses all 277 lookups — and the cold paths cost
+    roughly a second per paper, so a large conference is hours of work with
+    nothing to show for an interruption. Each finished paper is appended and
+    flushed as it completes; a later run reads the file back and skips those
+    papers. It is deleted once papers_enriched.jsonl lands, which supersedes it.
+
+    Flushing (not fsync) is deliberate: the failure this protects against is the
+    process dying, not the machine, and fsync per paper would be pure cost.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._file: TextIO | None = None
+
+    def restore(self) -> dict[str, Paper]:
+        """Papers a previous run already looked up, keyed by normalized title.
+
+        A file left behind by a killed process can end in a half-written line,
+        so unparseable lines are dropped rather than failing the run — the
+        papers they describe simply get looked up again. The file is then
+        rewritten from what did parse, because appending onto a torn line would
+        swallow the next good record into it and lose that paper as well.
+        """
+        if not self.path.exists():
+            return {}
+        done: dict[str, Paper] = {}
+        torn = False
+        with open(self.path, encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    paper = Paper.from_dict(json.loads(line))
+                except (ValueError, KeyError):
+                    torn = True
+                    continue
+                done[normalize_title(paper.title)] = paper
+        if torn:
+            logger.warning(
+                "Dropping an unparseable line from %s — the papers it covered "
+                "will be looked up again",
+                self.path,
+            )
+            self._rewrite(list(done.values()))
+        return done
+
+    def _rewrite(self, papers: list[Paper]) -> None:
+        """Replace the file with `papers`, atomically.
+
+        Only used to heal a torn file, so that every later append lands on a
+        line of its own.
+        """
+        self.close()
+        tmp = self.path.with_suffix(self.path.suffix + ".rewrite")
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                for paper in papers:
+                    f.write(paper.to_json() + "\n")
+            os.replace(tmp, self.path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+
+    def record(self, papers: list[Paper]) -> None:
+        """Append finished papers and flush, so a kill loses only what is in flight."""
+        if not papers:
+            return
+        if self._file is None:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._file = open(self.path, "a", encoding="utf-8")
+        for paper in papers:
+            self._file.write(paper.to_json() + "\n")
+        self._file.flush()
+
+    def discard(self) -> None:
+        self.close()
+        self.path.unlink(missing_ok=True)
+
+    def close(self) -> None:
+        if self._file is not None:
+            self._file.close()
+            self._file = None
+
+    def __enter__(self) -> "Checkpoint":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+
 # Semantic Scholar's own venue strings, for bulk prefetch. Only entries verified
 # against the live API belong here — a prefix that is absent simply skips
 # prefetch and falls back to per-title matching, which is always correct.
@@ -204,6 +310,7 @@ S2_VENUE_NAMES: dict[str, str] = {
     "ijcai": "International Joint Conference on Artificial Intelligence",
     "naacl": "NAACL",
     "neurips": "Neural Information Processing Systems",
+    "usenix_security": "USENIX Security Symposium",
     "wacv": "WACV",
 }
 
@@ -281,6 +388,13 @@ def _dominant_path(refresh: list, doi_cold: list, title_cold: list) -> str:
     return best if counts[best] else ""
 
 
+Record = Callable[[list[Paper]], None]
+
+
+def _no_record(papers: list[Paper]) -> None:
+    """Default for callers that do not want progress checkpointed."""
+
+
 async def _run_batch(
     client: S2Client,
     http: httpx.AsyncClient,
@@ -288,16 +402,24 @@ async def _run_batch(
     id_of,
     *,
     set_match_status: bool,
+    record: Record = _no_record,
 ) -> None:
-    """Look papers up by ID and merge the results in place."""
+    """Look papers up by ID and merge the results in place.
+
+    Chunked at the same size the API accepts per request, so progress is
+    checkpointed a request at a time. This path is fast enough that finer
+    granularity would buy nothing.
+    """
     if not papers:
         return
-    ids = [id_of(p) for p in papers]
-    entries = await client.get_batch(http, ids)
-    for paper, entry in zip(papers, entries):
-        apply_enrichment(paper, entry)
-        if set_match_status:
-            paper.match_status = "matched" if entry else "not_found"
+    for start in range(0, len(papers), BATCH_CHUNK_SIZE):
+        chunk = papers[start : start + BATCH_CHUNK_SIZE]
+        entries = await client.get_batch(http, [id_of(p) for p in chunk])
+        for paper, entry in zip(chunk, entries):
+            apply_enrichment(paper, entry)
+            if set_match_status:
+                paper.match_status = "matched" if entry else "not_found"
+        record(chunk)
 
 
 async def _run_title_cold(
@@ -305,6 +427,7 @@ async def _run_title_cold(
     http: httpx.AsyncClient,
     papers: list[Paper],
     conf_id: str,
+    record: Record = _no_record,
 ) -> None:
     """Prefetch the venue in bulk, then match the remainder one at a time."""
     if not papers:
@@ -323,6 +446,7 @@ async def _run_title_cold(
         )
 
     misses: list[Paper] = []
+    prefetched: list[Paper] = []
     for paper in papers:
         entry = index.get(normalize_title(paper.title))
         if entry is None:
@@ -330,6 +454,8 @@ async def _run_title_cold(
             continue
         apply_enrichment(paper, entry)
         paper.match_status = "matched"
+        prefetched.append(paper)
+    record(prefetched)
 
     if misses:
         logger.info(
@@ -337,10 +463,13 @@ async def _run_title_cold(
             conf_id,
             len(misses),
         )
+    # Checkpointed one paper at a time: this loop is the slow path, a second or
+    # more per paper, so per-paper granularity is what makes resume worth having.
     for paper in tqdm(misses, desc=f"Matching {conf_id}", unit="paper"):
         entry = await client.match_title(http, paper.title)
         apply_enrichment(paper, entry)
         paper.match_status = match_status_for(paper.title, entry)
+        record([paper])
 
 
 async def enrich_conference(
@@ -351,35 +480,98 @@ async def enrich_conference(
     full: bool = False,
     retry_unmatched: bool = False,
 ) -> EnrichResult:
-    """Enrich a single conference, choosing the cheapest workable path."""
+    """Enrich a single conference, choosing the cheapest workable path.
+
+    Progress is checkpointed as it happens, so a run killed partway through the
+    cold paths resumes instead of starting over. The checkpoint only ever
+    shortcuts lookups: guards and the final write still see the whole paper set,
+    so a resumed run produces exactly the file an uninterrupted one would.
+    """
     conf_dir = data_dir / conf_id
+    checkpoint = Checkpoint(checkpoint_path(conf_dir))
+    if full:
+        # --full exists to discard prior enrichment; resuming onto a checkpoint
+        # written by an earlier run would quietly keep the very values it is
+        # meant to throw away.
+        checkpoint.discard()
+
     raw = read_papers(conf_dir / "papers.jsonl")
     enriched = read_papers(conf_dir / "papers_enriched.jsonl")
 
     reason = check_guards(raw, enriched)
     if reason:
         logger.warning("Skipping %s: %s", conf_id, reason)
+        # The checkpoint is kept here, unlike on a coverage-guard skip: this
+        # guard fires before any lookup runs, so it never rejects the results
+        # the checkpoint holds — those are still someone's unfinished run.
         return EnrichResult(conf_id, "skipped", reason=reason)
 
     if not raw:
+        # A success path like any other, so it clears the checkpoint too;
+        # leaving one here would let it be consumed by a later, unrelated crawl.
+        checkpoint.discard()
         return EnrichResult(conf_id, "nothing-to-do")
+
+    # papers.jsonl stays authoritative for membership and for identity: the
+    # checkpoint contributes enrichment to papers still in the raw file and
+    # nothing else, so one it holds that the latest crawl dropped stays dropped.
+    done = checkpoint.restore()
+    if retry_unmatched:
+        # --retry-unmatched exists to give previously unmatchable papers another
+        # chance. A checkpoint entry recording that very failure would absorb
+        # the retry — zero lookups, and the paper reported under Kept — which is
+        # the trap --full avoids by discarding the checkpoint outright. Dropping
+        # only the unmatched entries reopens them while the matched ones, which
+        # cost just as much to obtain, stay resumed.
+        done = {k: p for k, p in done.items() if p.match_status == "matched"}
+    todo: list[Paper] = []
+    for paper in raw:
+        finished = done.get(normalize_title(paper.title))
+        if finished is None:
+            todo.append(paper)
+        else:
+            carry_over(paper, finished)
+    resumed = len(raw) - len(todo)
+    if resumed:
+        logger.info(
+            "Resuming %s: %d of %d papers already done in %s",
+            conf_id,
+            resumed,
+            len(raw),
+            checkpoint.path.name,
+        )
 
     prior_by_title = {normalize_title(p.title): p for p in enriched}
     refresh, doi_cold, title_cold, kept = route_papers(
-        raw, prior_by_title, full=full, retry_unmatched=retry_unmatched
+        todo, prior_by_title, full=full, retry_unmatched=retry_unmatched
     )
 
-    async with httpx.AsyncClient(timeout=60.0) as http:
-        await _run_batch(client, http, refresh, corpus_id_of, set_match_status=False)
-        await _run_batch(client, http, doi_cold, doi_id_of, set_match_status=True)
-        await _run_title_cold(client, http, title_cold, conf_id)
+    with checkpoint:
+        async with httpx.AsyncClient(timeout=60.0) as http:
+            await _run_batch(
+                client, http, refresh, corpus_id_of,
+                set_match_status=False, record=checkpoint.record,
+            )
+            await _run_batch(
+                client, http, doi_cold, doi_id_of,
+                set_match_status=True, record=checkpoint.record,
+            )
+            await _run_title_cold(
+                client, http, title_cold, conf_id, record=checkpoint.record
+            )
 
     reason = check_enrichment_coverage(raw, enriched)
     if reason:
         logger.warning("Skipping %s: %s", conf_id, reason)
+        # The checkpoint holds exactly the results this guard just rejected.
+        # Keeping it would make every later run restore them, skip the lookups
+        # and hit the same guard — the retry the message asks for would be
+        # impossible without --full.
+        checkpoint.discard()
         return EnrichResult(conf_id, "skipped", reason=reason)
 
     write_enriched(raw, conf_dir / "papers_enriched.jsonl")
+    checkpoint.discard()
 
     return EnrichResult(
         conf_id=conf_id,
@@ -388,7 +580,9 @@ async def enrich_conference(
         total=len(raw),
         refreshed=len(refresh),
         cold=len(doi_cold) + len(title_cold),
-        kept=len(kept),
+        # Papers restored from the checkpoint needed no lookup this run, which
+        # is what this column counts; folding them in keeps total = the sum.
+        kept=len(kept) + resumed,
     )
 
 

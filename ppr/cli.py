@@ -12,8 +12,9 @@ from ppr.scrapers import SCRAPERS
 from ppr.api_client import OpenReviewAPIClient, create_openreview_client, create_openreview_v1_client
 from ppr.config import CrawlConfig
 from ppr.enrich import enrich_all, format_enrich_summary
-from ppr.models import Paper
+from ppr.models import Paper, write_papers
 from ppr.s2_client import S2Client
+from ppr.venues import REGISTRY_STEM
 
 CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -26,8 +27,9 @@ logger = logging.getLogger(__name__)
 
 
 def _available_conferences() -> list[str]:
-    from_configs = {p.stem for p in CONFIGS_DIR.glob("*.yaml")}
-    return sorted(from_configs | SCRAPERS.keys())
+    from ppr.discover import known_conference_ids
+
+    return sorted(known_conference_ids())
 
 
 def all_conference_ids(data_dir: Path) -> list[str]:
@@ -38,12 +40,10 @@ def all_conference_ids(data_dir: Path) -> list[str]:
 
 
 def _save_papers(papers: list[Paper], conf_id: str) -> Path:
-    save_path = DATA_DIR / conf_id / "papers.jsonl"
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(save_path, "w", encoding="utf-8") as f:
-        for paper in papers:
-            f.write(paper.to_json() + "\n")
-    return save_path
+    # Shares `write_papers`' refusal with the OpenReview save path: a scraper
+    # whose selector a site redesign outgrew returns `[]` just as an API error
+    # does, and must not silently erase the last good crawl either.
+    return write_papers(papers, DATA_DIR / conf_id / "papers.jsonl")
 
 
 def _add_auth_args(parser: argparse.ArgumentParser) -> None:
@@ -114,6 +114,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum allowed relative difference (default: 0.1 = 10%%).",
     )
 
+    # discover
+    discover_parser = subparsers.add_parser(
+        "discover", help="Check tracked venues for newly published accepted-paper lists"
+    )
+    discover_parser.add_argument(
+        "--json", action="store_true",
+        help="Emit machine-readable JSON instead of a table.",
+    )
+    discover_parser.add_argument(
+        "--venue", action="append", default=[],
+        help="Limit the sweep to these venue prefixes (repeatable).",
+    )
+    _add_auth_args(discover_parser)
+
     return parser
 
 
@@ -122,7 +136,10 @@ def cmd_crawl(args: argparse.Namespace) -> None:
 
     # Split into scraped vs OpenReview conferences
     scraped = [c for c in conf_ids if c in SCRAPERS]
-    openreview = [c for c in conf_ids if c not in SCRAPERS and (CONFIGS_DIR / f"{c}.yaml").exists()]
+    openreview = [
+        c for c in conf_ids
+        if c not in SCRAPERS and c != REGISTRY_STEM and (CONFIGS_DIR / f"{c}.yaml").exists()
+    ]
     unknown = [c for c in conf_ids if c not in scraped and c not in openreview]
 
     if unknown:
@@ -214,6 +231,62 @@ def cmd_validate(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def cmd_discover(args: argparse.Namespace) -> None:
+    from datetime import date
+
+    from ppr.discover import (
+        discover,
+        format_discover_table,
+        known_conference_ids,
+        results_to_json,
+        stale_empty,
+    )
+    from ppr.venues import load_registry
+
+    registry = load_registry()
+    if args.venue:
+        # A prefix that matches nothing would silently narrow the sweep to zero
+        # venues and report "no new lists ready to register" -- a typo reading
+        # as good news. Name the offenders instead.
+        unknown = sorted(set(args.venue) - set(registry))
+        if unknown:
+            raise SystemExit(
+                f"Unknown venue prefix(es): {', '.join(unknown)}. "
+                f"Known prefixes: {', '.join(sorted(registry))}"
+            )
+        registry = {k: v for k, v in registry.items() if k in args.venue}
+
+    # OpenReview refuses anonymous venueid queries, so probe those venues only
+    # when credentials exist. Without them the sweep still covers the rest --
+    # five unprobed venues must not read as "nothing new".
+    or_client = None
+    if args.username and args.password:
+        try:
+            or_client = create_openreview_client(
+                username=args.username, password=args.password
+            )
+        except Exception as exc:
+            logger.warning("OpenReview login failed (%s); those venues will be skipped", exc)
+    else:
+        logger.warning("No OpenReview credentials; those venues will be reported unreachable")
+
+    today = date.today()
+    results = discover(
+        registry, known_conference_ids(), today.year, openreview_client=or_client
+    )
+    stale = stale_empty(results, registry, today.month, today.year)
+    if args.json:
+        print(results_to_json(results, stale=stale))
+    else:
+        print(format_discover_table(results))
+        if stale:
+            print(
+                "\nPast their usual announce month but still parsing 0 papers "
+                "(possible broken selector): "
+                + ", ".join(r.conf_id for r in stale)
+            )
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -222,6 +295,7 @@ def main() -> None:
         "crawl": cmd_crawl,
         "enrich": cmd_enrich,
         "validate": cmd_validate,
+        "discover": cmd_discover,
     }
 
     if args.command in commands:

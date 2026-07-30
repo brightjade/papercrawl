@@ -5,9 +5,13 @@ from collections import Counter
 import openreview
 
 from ppr.config import CrawlConfig
-from ppr.models import Paper
+from ppr.models import Paper, write_papers
 
 logger = logging.getLogger(__name__)
+
+
+class EmptyCrawlError(Exception):
+    """The API returned papers but none matched the configured selections."""
 
 
 def _resolve_credentials(
@@ -134,6 +138,19 @@ class OpenReviewAPIClient:
             )
             papers.append(paper)
 
+        if notes and not papers:
+            seen = sorted({
+                (note.content.get("venue", "") if is_v1
+                 else note.content.get("venue", {}).get("value", ""))
+                for note in notes
+            })
+            raise EmptyCrawlError(
+                f"{self.config.venue_id}: {len(notes)} papers returned but none "
+                f"matched the configured selections {sorted(sel_map.values())}. "
+                f"Venue strings actually present: {seen}. "
+                f"Fix the config's `selections` before crawling."
+            )
+
         counts = Counter(p.selection for p in papers)
         for sel, count in counts.most_common():
             logger.info("  %s: %d papers", sel, count)
@@ -141,11 +158,8 @@ class OpenReviewAPIClient:
         return papers
 
     def save_papers(self, papers: list[Paper]) -> None:
-        save_path = self.config.get_save_path()
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(save_path, "w", encoding="utf-8") as f:
-            for paper in papers:
-                f.write(paper.to_json() + "\n")
-
+        # `write_papers` owns the refusal to truncate a good crawl to zero --
+        # `fetch_papers` returns `[]` on an OpenReviewException, which would
+        # otherwise reach here and erase the file while logging "Saved 0".
+        save_path = write_papers(papers, self.config.get_save_path())
         logger.info("Saved %d papers to %s", len(papers), save_path)

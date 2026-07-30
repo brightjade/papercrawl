@@ -1,0 +1,167 @@
+# Registry of tracked conference venues, used by `ppr discover`.
+#
+# source:   openreview | dblp | cvf | usenix | acl | aaai | bespoke
+#           acl/aaai/bespoke need a hand-written scraper per year, so discovery
+#           reports them as needs-manual rather than auto-registering them.
+# cadence:  annual | biennial-odd | biennial-even
+# probe:    source-specific template; {year} is the 4-digit year, {yy} the last two.
+venues:
+  # --- OpenReview (requires credentials) ---
+  iclr:
+    name: ICLR
+    source: openreview
+    cadence: annual
+    announce_month: 1
+    probe: {venue_id: "ICLR.cc/{year}/Conference"}
+  neurips:
+    name: NeurIPS
+    source: openreview
+    cadence: annual
+    announce_month: 9
+    probe: {venue_id: "NeurIPS.cc/{year}/Conference"}
+  icml:
+    name: ICML
+    source: openreview
+    cadence: annual
+    announce_month: 5
+    probe: {venue_id: "ICML.cc/{year}/Conference"}
+  colm:
+    name: COLM
+    source: openreview
+    cadence: annual
+    announce_month: 7
+    probe: {venue_id: "colmweb.org/COLM/{year}/Conference"}
+  corl:
+    name: CoRL
+    source: openreview
+    cadence: annual
+    announce_month: 9
+    probe: {venue_id: "robot-learning.org/CoRL/{year}/Conference"}
+
+  # --- DBLP ---
+  icse:
+    name: ICSE
+    source: dblp
+    cadence: annual
+    announce_month: 12
+    probe: {toc: "db/conf/icse/icse{year}.bht"}
+  fse:
+    name: FSE
+    source: dblp
+    cadence: annual
+    announce_month: 12
+    probe:
+      toc:
+        - "db/conf/sigsoft/fse{year}.bht"
+        - {key: "db/journals/pacmse/pacmse{pacmse_vol}.bht", number: "FSE"}
+  ase:
+    name: ASE
+    source: dblp
+    cadence: annual
+    announce_month: 9
+    probe: {toc: "db/conf/kbse/ase{year}.bht"}
+  issta:
+    name: ISSTA
+    source: dblp
+    cadence: annual
+    announce_month: 5
+    probe:
+      toc:
+        - "db/conf/issta/issta{year}.bht"
+        - {key: "db/journals/pacmse/pacmse{pacmse_vol}.bht", number: "ISSTA"}
+  icra:
+    name: ICRA
+    source: dblp
+    cadence: annual
+    announce_month: 2
+    probe: {toc: "db/conf/icra/icra{year}.bht"}
+  iros:
+    name: IROS
+    source: dblp
+    cadence: annual
+    announce_month: 7
+    probe: {toc: "db/conf/iros/iros{year}.bht"}
+  rss:
+    name: RSS
+    source: dblp
+    cadence: annual
+    announce_month: 4
+    probe: {toc: "db/conf/rss/rss{year}.bht"}
+  ijcai:
+    name: IJCAI
+    source: dblp
+    cadence: annual
+    announce_month: 4
+    probe: {toc: "db/conf/ijcai/ijcai{year}.bht"}
+
+  # --- CVF / ECVA ---
+  cvpr:
+    name: CVPR
+    source: cvf
+    cadence: annual
+    announce_month: 2
+    probe: {url: "https://openaccess.thecvf.com/CVPR{year}?day=all"}
+  iccv:
+    name: ICCV
+    source: cvf
+    cadence: biennial-odd
+    announce_month: 7
+    probe: {url: "https://openaccess.thecvf.com/ICCV{year}?day=all"}
+  wacv:
+    name: WACV
+    source: cvf
+    cadence: annual
+    announce_month: 10
+    probe: {url: "https://openaccess.thecvf.com/WACV{year}"}
+  eccv:
+    name: ECCV
+    source: cvf
+    cadence: biennial-even
+    announce_month: 7
+    probe: {url: "https://www.ecva.net/papers.php", marker: "ECCV {year}"}
+
+  # --- USENIX ---
+  usenix_security:
+    name: USENIX Security
+    source: usenix
+    cadence: annual
+    announce_month: 6
+    probe: {slug: "usenixsecurity{yy}"}
+
+  # --- Hand-written scrapers (report only) ---
+  acl:
+    name: ACL
+    source: acl
+    cadence: annual
+    announce_month: 5
+    probe: {url: "https://{year}.aclweb.org/"}
+  emnlp:
+    name: EMNLP
+    source: acl
+    cadence: annual
+    announce_month: 9
+    probe: {url: "https://{year}.emnlp.org/"}
+  naacl:
+    name: NAACL
+    source: acl
+    cadence: annual
+    announce_month: 3
+    probe: {url: "https://{year}.naacl.org/"}
+  eacl:
+    name: EACL
+    source: acl
+    cadence: annual
+    announce_month: 1
+    probe: {url: "https://{year}.eacl.org/"}
+  coling:
+    name: COLING
+    source: acl
+    cadence: annual
+    announce_month: 11
+    probe: {url: "https://coling{year}.org/"}
+  aaai:
+    name: AAAI
+    source: aaai
+    cadence: annual
+    announce_month: 12
+    probe: {url: "https://ojs.aaai.org/index.php/AAAI/issue/archive"}

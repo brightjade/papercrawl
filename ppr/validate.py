@@ -1,17 +1,16 @@
 """Cross-reference scraped paper counts against DBLP proceedings data."""
 
 import logging
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
-import requests
+from ppr import dblp_client
+from ppr.dblp_client import DblpUnavailable
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
-DBLP_API_URL = "https://dblp.org/search/publ/api"
 HITS_PER_PAGE = 1000
 
 # Conferences scraped directly from DBLP (ppr/scrapers/dblp.py).
@@ -124,7 +123,9 @@ DBLP_VALIDATION_KEYS: dict[str, list[str]] = {
     "wacv_2024": ["db/conf/wacv/wacv2024.bht"],
     "wacv_2025": ["db/conf/wacv/wacv2025.bht"],
     # iccv_2025, wacv_2026: not yet indexed (pre-publication)
-    # eccv_2024: 89 volumes on DBLP — fetching counts takes ~90s
+    # eccv_2024: 89 volumes on DBLP — at DBLP's stated 4s crawl delay that is
+    # ~6 minutes of queries. Slow, but the alternative is being throttled out
+    # partway and reporting the shortfall as a count mismatch.
     "eccv_2024": [f"db/conf/eccv/eccv2024-{i}.bht" for i in range(1, 90)],
     # rss_2025: not yet indexed
 }
@@ -133,40 +134,32 @@ DBLP_VALIDATION_KEYS: dict[str, list[str]] = {
 def fetch_dblp_count(keys: list[str]) -> int:
     """Count non-Editorship papers across one or more DBLP toc keys.
 
-    Makes one paginated API call per key, sums the paper counts.
-    Rate-limited to 1 request per second.
+    Makes one paginated API call per key and sums the paper counts. Pacing and
+    retries belong to `ppr/dblp_client.py`, shared with the discovery sweep;
+    `DblpUnavailable` propagates rather than being absorbed into a total.
     """
-    total = 0
-    for i, key in enumerate(keys):
-        if i > 0:
-            time.sleep(1)
-        total += _count_one_key(key)
-    return total
+    return sum(_count_one_key(key) for key in keys)
 
 
 def _count_one_key(key: str) -> int:
     """Count non-Editorship papers for a single DBLP toc key.
 
-    Returns 0 if the key is not found or the API returns an error.
+    Raises `DblpUnavailable` if DBLP could not be made to answer. Returning a
+    partial count there -- as this did before -- reports throttling as data:
+    the caller compares it against the scraped count and announces a mismatch
+    that never existed. A count is only ever returned when it is complete.
     """
     offset = 0
     count = 0
 
     while True:
-        params = {
+        logger.debug("DBLP API: key=%s offset=%d", key, offset)
+        data = dblp_client.query({
             "q": f"toc:{key}:",
             "h": HITS_PER_PAGE,
             "f": offset,
             "format": "json",
-        }
-        logger.debug("DBLP API: key=%s offset=%d", key, offset)
-        try:
-            resp = requests.get(DBLP_API_URL, params=params, timeout=30)
-            resp.raise_for_status()
-        except requests.RequestException as e:
-            logger.warning("DBLP API error for %s: %s", key, e)
-            return count
-        data = resp.json()
+        })
 
         hits_data = data["result"]["hits"]
         api_total = int(hits_data["@total"])
@@ -182,8 +175,6 @@ def _count_one_key(key: str) -> int:
         if offset >= api_total:
             break
 
-        time.sleep(1)
-
     logger.debug("DBLP count for %s: %d papers", key, count)
     return count
 
@@ -191,7 +182,11 @@ def _count_one_key(key: str) -> int:
 @dataclass
 class ValidationResult:
     conf_id: str
-    status: str      # PASS, FAIL, SKIP, NO_DATA
+    # PASS, FAIL, SKIP, NO_DATA, ERROR. ERROR is "DBLP never answered", kept
+    # apart from NO_DATA ("DBLP answered, with nothing") and from FAIL ("the
+    # counts really disagree") -- conflating them is what made a throttled
+    # sweep look like a bad crawl.
+    status: str
     scraped: int = 0
     dblp: int = 0
     message: str = ""
@@ -223,7 +218,15 @@ def validate_conference(
     with open(output_path, encoding="utf-8") as f:
         scraped = sum(1 for line in f if line.strip())
 
-    dblp_count = fetch_dblp_count(DBLP_VALIDATION_KEYS[conf_id])
+    try:
+        dblp_count = fetch_dblp_count(DBLP_VALIDATION_KEYS[conf_id])
+    except DblpUnavailable as exc:
+        # Never fall through to the comparison: a throttled query would come
+        # back short and be announced as a count mismatch.
+        return ValidationResult(
+            conf_id, "ERROR", scraped=scraped,
+            message=f"DBLP did not answer ({exc}); count not comparable",
+        )
 
     if dblp_count == 0:
         return ValidationResult(
