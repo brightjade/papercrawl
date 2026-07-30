@@ -113,3 +113,47 @@ class TestOpenReviewAPIClient:
 
         lines = save_path.read_text().strip().split("\n")
         assert len(lines) == 1
+
+
+import pytest
+
+from ppr.api_client import EmptyCrawlError, OpenReviewAPIClient
+
+
+class TestEmptyCrawlGuard:
+    def _client(self, venue_values, selections):
+        from unittest.mock import MagicMock
+
+        notes = []
+        for v in venue_values:
+            n = MagicMock()
+            n.content = {"venue": {"value": v}, "title": {"value": "T"},
+                         "authors": {"value": ["A"]}}
+            n.forum = "f"
+            notes.append(n)
+        or_client = MagicMock()
+        or_client.get_all_notes.return_value = notes
+
+        config = MagicMock()
+        config.venue_id = "X/2026/Conference"
+        config.api_version = 2
+        config.selections = selections
+        config.extra_venue_ids = []
+        return OpenReviewAPIClient(config, or_client)
+
+    def test_raises_when_every_note_is_filtered_away(self):
+        """CoRL 2024: 264 notes, selections matching none of them."""
+        client = self._client(["CoRL 2024"] * 264,
+                              {"oral": "CoRL 2024 Oral", "poster": "CoRL 2024 Poster"})
+        with pytest.raises(EmptyCrawlError) as exc:
+            client.fetch_papers()
+        assert "264" in str(exc.value)
+        assert "CoRL 2024" in str(exc.value)  # names the venue strings actually seen
+
+    def test_succeeds_when_selections_match(self):
+        client = self._client(["CoRL 2024"] * 3, {"main": "CoRL 2024"})
+        assert len(client.fetch_papers()) == 3
+
+    def test_no_notes_at_all_is_not_an_error(self):
+        client = self._client([], {"main": "X"})
+        assert client.fetch_papers() == []

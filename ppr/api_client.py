@@ -10,6 +10,10 @@ from ppr.models import Paper
 logger = logging.getLogger(__name__)
 
 
+class EmptyCrawlError(Exception):
+    """The API returned papers but none matched the configured selections."""
+
+
 def _resolve_credentials(
     username: str | None = None,
     password: str | None = None,
@@ -133,6 +137,19 @@ class OpenReviewAPIClient:
                 forum_id=note.forum,
             )
             papers.append(paper)
+
+        if notes and not papers:
+            seen = sorted({
+                (note.content.get("venue", "") if is_v1
+                 else note.content.get("venue", {}).get("value", ""))
+                for note in notes
+            })
+            raise EmptyCrawlError(
+                f"{self.config.venue_id}: {len(notes)} papers returned but none "
+                f"matched the configured selections {sorted(sel_map.values())}. "
+                f"Venue strings actually present: {seen}. "
+                f"Fix the config's `selections` before crawling."
+            )
 
         counts = Counter(p.selection for p in papers)
         for sel, count in counts.most_common():
