@@ -80,16 +80,41 @@ jobs:
             const notify = live.length > 0 || stale.length > 0;
 
             if (!notify) {
+              // A sweep that learned nothing is not a sweep that found nothing,
+              // which is the whole reason `unreachable` is its own status. Two
+              // routine ways a sweep goes blind: DBLP throttles out, and every
+              // OpenReview venue reports unreachable until the repository
+              // secrets are added. Closing on that evidence would let a blind
+              // sweep retire a real finding from an earlier month -- the exact
+              // inversion the status taxonomy exists to prevent.
+              if (unreachable.length) {
+                for (const issue of existing.data) {
+                  await github.rest.issues.createComment({
+                    ...repo, issue_number: issue.number,
+                    body: [
+                      `Sweep on ${today} found nothing live and nothing stale, but ${unreachable.length} venue(s) could not be probed, so it proves nothing. Leaving this issue open.`,
+                      unreachable.map((r) => `- \`${r.conf_id}\` — ${r.note}`).join('\n'),
+                      `If these say the OpenReview credentials are missing, add the \`OPENREVIEW_USERNAME\` and \`OPENREVIEW_PASSWORD\` repository secrets.`,
+                    ].join('\n\n'),
+                  });
+                }
+                core.info(
+                  `Inconclusive sweep: ${unreachable.length} venue(s) unreachable. ` +
+                  `Left ${existing.data.length} issue(s) open.`
+                );
+                return;
+              }
+
               for (const issue of existing.data) {
                 await github.rest.issues.createComment({
                   ...repo, issue_number: issue.number,
-                  body: `Sweep on ${today} found nothing live and nothing stale. Closing — a new issue opens as soon as something turns up.`,
+                  body: `Sweep on ${today} completed cleanly and found nothing live and nothing stale. Closing — a new issue opens as soon as something turns up.`,
                 });
                 await github.rest.issues.update({
                   ...repo, issue_number: issue.number, state: 'closed', state_reason: 'completed',
                 });
               }
-              core.info(`Nothing live, nothing stale. Closed ${existing.data.length} open issue(s).`);
+              core.info(`Clean sweep, nothing found. Closed ${existing.data.length} open issue(s).`);
               return;
             }
 
