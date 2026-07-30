@@ -787,6 +787,206 @@ class TestEnrichConference:
         assert result.total == 2
 
 
+class TestEnrichResume:
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_checkpoint_is_written_as_work_completes(self, tmp_path):
+        """The point of the checkpoint is to survive a kill, so it must exist mid-run."""
+        _conf(tmp_path, "icml_2026", [
+            _paper(title="A", link="https://openreview.net/pdf?id=a"),
+            _paper(title="B", link="https://openreview.net/pdf?id=b"),
+        ])
+        respx.get(BULK_URL).mock(return_value=httpx.Response(200, json={"total": 0, "data": []}))
+        seen = []
+
+        def _match(request):
+            ckpt = tmp_path / "icml_2026" / ".papers_enriched.tmp.jsonl"
+            seen.append(len(ckpt.read_text().splitlines()) if ckpt.exists() else 0)
+            return httpx.Response(200, json={"data": [{"title": "T", "citationCount": 1}]})
+
+        respx.get(MATCH_URL).mock(side_effect=_match)
+        await enrich_conference("icml_2026", S2Client(min_interval=0.0), tmp_path)
+        assert seen == [0, 1], "checkpoint must grow between lookups, not only at the end"
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_resume_skips_papers_already_in_the_checkpoint(self, tmp_path):
+        _conf(tmp_path, "icml_2026", [_paper(title="Done"), _paper(title="Todo")])
+        _write_jsonl(
+            tmp_path / "icml_2026" / ".papers_enriched.tmp.jsonl",
+            [_paper(title="Done", citation_count=42)],
+        )
+        respx.get(BULK_URL).mock(return_value=httpx.Response(200, json={"total": 0, "data": []}))
+        route = respx.get(MATCH_URL).mock(
+            return_value=httpx.Response(200, json={"data": [{"title": "Todo", "citationCount": 7}]})
+        )
+        await enrich_conference("icml_2026", S2Client(min_interval=0.0), tmp_path)
+
+        assert route.call_count == 1, "the completed paper must not be looked up again"
+        out = {p.title: p for p in read_papers(tmp_path / "icml_2026" / "papers_enriched.jsonl")}
+        assert out["Done"].citation_count == 42
+        assert out["Todo"].citation_count == 7
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_checkpoint_is_removed_on_success(self, tmp_path):
+        _conf(tmp_path, "icml_2026", [_paper(title="A")])
+        respx.get(BULK_URL).mock(return_value=httpx.Response(200, json={"total": 0, "data": []}))
+        respx.get(MATCH_URL).mock(
+            return_value=httpx.Response(200, json={"data": [{"title": "A", "citationCount": 1}]})
+        )
+        await enrich_conference("icml_2026", S2Client(min_interval=0.0), tmp_path)
+        assert not (tmp_path / "icml_2026" / ".papers_enriched.tmp.jsonl").exists()
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_full_discards_a_stale_checkpoint(self, tmp_path):
+        """--full exists to throw prior enrichment away; resuming onto it would defeat that."""
+        _conf(tmp_path, "icml_2026", [_paper(title="A")])
+        _write_jsonl(
+            tmp_path / "icml_2026" / ".papers_enriched.tmp.jsonl",
+            [_paper(title="A", citation_count=999)],
+        )
+        respx.get(BULK_URL).mock(return_value=httpx.Response(200, json={"total": 0, "data": []}))
+        respx.get(MATCH_URL).mock(
+            return_value=httpx.Response(200, json={"data": [{"title": "A", "citationCount": 5}]})
+        )
+        await enrich_conference("icml_2026", S2Client(min_interval=0.0), tmp_path, full=True)
+        out = read_papers(tmp_path / "icml_2026" / "papers_enriched.jsonl")
+        assert out[0].citation_count == 5
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_checkpoint_cannot_resurrect_a_paper_dropped_from_raw(self, tmp_path):
+        """papers.jsonl stays authoritative for membership, checkpoint or not."""
+        _conf(tmp_path, "icml_2026", [_paper(title="Keep")])
+        _write_jsonl(
+            tmp_path / "icml_2026" / ".papers_enriched.tmp.jsonl",
+            [_paper(title="Keep", citation_count=1), _paper(title="Gone", citation_count=2)],
+        )
+        respx.get(BULK_URL).mock(return_value=httpx.Response(200, json={"total": 0, "data": []}))
+        await enrich_conference("icml_2026", S2Client(min_interval=0.0), tmp_path)
+        titles = [p.title for p in read_papers(tmp_path / "icml_2026" / "papers_enriched.jsonl")]
+        assert titles == ["Keep"]
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_resumed_output_equals_uninterrupted_output(self, tmp_path):
+        """A resumed run must produce exactly what one clean run would.
+
+        The checkpoint here is not hand-written: the first attempt is killed
+        partway through, the way the usenix_security_2026 run was, so the file
+        the resume reads back is one this code really produced.
+        """
+        papers = [_paper(title=f"P{i}") for i in range(4)]
+        respx.get(BULK_URL).mock(return_value=httpx.Response(200, json={"total": 0, "data": []}))
+        state = {"n": 0, "die_on": None}
+
+        def _match(request):
+            state["n"] += 1
+            if state["n"] == state["die_on"]:
+                raise RuntimeError("killed")
+            return httpx.Response(200, json={"data": [{"title": "x", "citationCount": 3}]})
+
+        respx.get(MATCH_URL).mock(side_effect=_match)
+
+        _conf(tmp_path, "clean_2026", papers)
+        await enrich_conference("clean_2026", S2Client(min_interval=0.0), tmp_path)
+        assert state["n"] == 4
+
+        _conf(tmp_path, "resumed_2026", papers)
+        state["n"], state["die_on"] = 0, 3  # die once P0 and P1 are recorded
+        with pytest.raises(RuntimeError):
+            await enrich_conference("resumed_2026", S2Client(min_interval=0.0), tmp_path)
+        ckpt = tmp_path / "resumed_2026" / ".papers_enriched.tmp.jsonl"
+        assert len(ckpt.read_text().splitlines()) == 2
+        assert not (tmp_path / "resumed_2026" / "papers_enriched.jsonl").exists()
+
+        state["n"], state["die_on"] = 0, None
+        await enrich_conference("resumed_2026", S2Client(min_interval=0.0), tmp_path)
+        assert state["n"] == 2, "only the two unfinished papers may be looked up"
+
+        clean = (tmp_path / "clean_2026" / "papers_enriched.jsonl").read_text()
+        resumed = (tmp_path / "resumed_2026" / "papers_enriched.jsonl").read_text()
+        assert clean == resumed
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_batch_path_progress_survives_a_kill_in_a_later_path(self, tmp_path):
+        """A conference mixing paths must not lose its finished batch work."""
+        _conf(tmp_path, "icml_2026", [
+            _paper(title="ById", link="https://doi.org/10.1/a"),
+            _paper(title="ByTitle", link="https://openreview.net/pdf?id=b"),
+        ])
+        respx.post(BATCH_URL).mock(
+            return_value=httpx.Response(200, json=[{"title": "ById", "citationCount": 4}])
+        )
+        respx.get(BULK_URL).mock(
+            return_value=httpx.Response(200, json={"total": 0, "data": []})
+        )
+        respx.get(MATCH_URL).mock(side_effect=RuntimeError("killed"))
+
+        with pytest.raises(RuntimeError):
+            await enrich_conference("icml_2026", S2Client(min_interval=0.0), tmp_path)
+
+        done = read_papers(tmp_path / "icml_2026" / ".papers_enriched.tmp.jsonl")
+        assert [p.title for p in done] == ["ById"]
+        assert done[0].citation_count == 4
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_half_written_last_line_is_ignored(self, tmp_path):
+        """A killed process can leave a partial line; it must not fail the run."""
+        _conf(tmp_path, "icml_2026", [_paper(title="Done"), _paper(title="Torn")])
+        ckpt = tmp_path / "icml_2026" / ".papers_enriched.tmp.jsonl"
+        _write_jsonl(ckpt, [_paper(title="Done", citation_count=42)])
+        with open(ckpt, "a", encoding="utf-8") as f:
+            f.write('{"title": "Torn", "link": "L", "citation_c')
+
+        respx.get(BULK_URL).mock(
+            return_value=httpx.Response(200, json={"total": 0, "data": []})
+        )
+        route = respx.get(MATCH_URL).mock(
+            return_value=httpx.Response(
+                200, json={"data": [{"title": "Torn", "citationCount": 7}]}
+            )
+        )
+        await enrich_conference("icml_2026", S2Client(min_interval=0.0), tmp_path)
+
+        assert route.call_count == 1, "only the torn paper is looked up again"
+        out = {p.title: p for p in read_papers(
+            tmp_path / "icml_2026" / "papers_enriched.jsonl"
+        )}
+        assert out["Done"].citation_count == 42
+        assert out["Torn"].citation_count == 7
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_checkpoint_is_discarded_when_a_guard_rejects_the_run(self, tmp_path):
+        """The guard says retry; a kept checkpoint would make retrying impossible.
+
+        The checkpoint would hold exactly the results the coverage guard just
+        rejected, so every later run would restore them, skip every lookup and
+        hit the same guard again.
+        """
+        enriched = [
+            _paper(title=f"P{i}", external_ids={"CorpusId": i + 1}, citation_count=i)
+            for i in range(10)
+        ]
+        _conf(tmp_path, "iclr_2026", [_paper(title=f"P{i}") for i in range(10)], enriched)
+        respx.get(BULK_URL).mock(
+            return_value=httpx.Response(200, json={"total": 0, "data": []})
+        )
+        respx.get(MATCH_URL).mock(return_value=httpx.Response(200, json={"data": []}))
+
+        result = await enrich_conference(
+            "iclr_2026", S2Client(min_interval=0.0), tmp_path, full=True
+        )
+
+        assert result.status == "skipped"
+        assert not (tmp_path / "iclr_2026" / ".papers_enriched.tmp.jsonl").exists()
+
+
 class TestEnrichAll:
     @pytest.mark.asyncio
     async def test_one_skip_does_not_stop_the_rest(self, tmp_path):
