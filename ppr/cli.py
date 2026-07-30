@@ -27,8 +27,9 @@ logger = logging.getLogger(__name__)
 
 
 def _available_conferences() -> list[str]:
-    from_configs = {p.stem for p in CONFIGS_DIR.glob("*.yaml") if p.stem != REGISTRY_STEM}
-    return sorted(from_configs | SCRAPERS.keys())
+    from ppr.discover import known_conference_ids
+
+    return sorted(known_conference_ids())
 
 
 def all_conference_ids(data_dir: Path) -> list[str]:
