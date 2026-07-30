@@ -145,6 +145,41 @@ cmd_stop() {
   echo "종료: $1"
 }
 
+RSYNC_EXCLUDES=(
+  --exclude '.env'
+  --exclude '.git'
+  --exclude '.venv'
+  --exclude '__pycache__'
+  --exclude '.DS_Store'
+)
+
+cmd_pull_data() {
+  local del=()
+  if [[ "${1:-}" == "--delete" ]]; then
+    del=(--delete)
+  fi
+  rsync -avh --progress "${del[@]}" "${RSYNC_EXCLUDES[@]}" \
+    "$PPR_REMOTE_HOST:$PPR_REMOTE_DIR/data/" "$REPO_ROOT/data/"
+}
+
+cmd_push_data() {
+  local del=() reply
+  if [[ "${1:-}" == "--delete" ]]; then
+    del=(--delete)
+  fi
+  echo "로컬 data/ 를 원격(정본)에 덮어씁니다."
+  if [[ ${#del[@]} -gt 0 ]]; then
+    echo "--delete: 로컬에 없는 원격 파일은 삭제됩니다."
+  fi
+  read -r -p "계속할까요? [y/N] " reply
+  if [[ "$reply" != "y" && "$reply" != "Y" ]]; then
+    echo "취소했습니다."
+    exit 1
+  fi
+  rsync -avh --progress "${del[@]}" "${RSYNC_EXCLUDES[@]}" \
+    "$REPO_ROOT/data/" "$PPR_REMOTE_HOST:$PPR_REMOTE_DIR/data/"
+}
+
 usage() {
   cat <<'EOF'
 사용법: scripts/remote.sh <명령> [인자...]
@@ -172,6 +207,8 @@ main() {
     logs) load_config; cmd_logs "$@" ;;
     attach) load_config; cmd_attach "$@" ;;
     stop) load_config; cmd_stop "$@" ;;
+    pull-data) load_config; cmd_pull_data "$@" ;;
+    push-data) load_config; cmd_push_data "$@" ;;
     -h|--help|help|"") usage ;;
     *) echo "알 수 없는 명령: $cmd" >&2; usage >&2; exit 1 ;;
   esac
