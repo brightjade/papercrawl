@@ -71,9 +71,22 @@ def missing_years(
 MIN_LIVE_PAPERS = 50
 
 # DBLP throttles hard: a sweep at 0.4s intervals drew a 429 on the fourth
-# request and refused connections thereafter.
-DBLP_MIN_INTERVAL = 1.0
+# request and refused connections thereafter. 1.0s was not enough either --
+# two real sweeps on 2026-07-30 still lost 7-8 venue-years per run (the lost
+# set *shifted* between runs) to a mix of 429, 500, and 503 that cleared up
+# within seconds of a manual retry -- transient throttling, not an outage.
+# Bumping to 3.0s made it worse (every DBLP venue came back a hard
+# ConnectionError), which is the tell that this isn't a per-request interval
+# problem alone -- it's total request volume in a short window. dblp.org's own
+# robots.txt (checked 2026-07-30) specifies `Crawl-delay: 4`, which is the
+# number actually used here: a server-stated figure beats another guess.
+DBLP_MIN_INTERVAL = 4.0
 DBLP_MAX_RETRIES = 5
+# DBLP's overload signal isn't just 429 -- under sustained load it also
+# returns bare 500s and 503s that clear up on their own within seconds.
+# Treating those as terminal `unreachable` (as a first pass did) turns
+# ordinary throttling into permanent-looking failures.
+DBLP_RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
 DBLP_API_URL = "https://dblp.org/search/publ/api"
 
 HEADERS = {
@@ -220,6 +233,17 @@ def _probe_dblp(venue: Venue, year: int) -> ProbeResult:
     return last
 
 
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse a `Retry-After` header's delay-seconds form; `None` if absent or a
+    HTTP-date (rare for this API, and 2**attempt covers it well enough)."""
+    if value is None:
+        return None
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def _probe_dblp_key(venue: Venue, year: int, key: str, number: str | None = None) -> ProbeResult:
     """Query one toc key's hit count.
 
@@ -253,9 +277,12 @@ def _probe_dblp_key(venue: Venue, year: int, key: str, number: str | None = None
             time.sleep(2**attempt)
             continue
 
-        if response.status_code == 429:
-            last_failure = "HTTP 429"
-            time.sleep(2**attempt)
+        if response.status_code in DBLP_RETRYABLE_STATUSES:
+            last_failure = f"HTTP {response.status_code}"
+            # DBLP's own Retry-After beats a guessed exponential backoff when
+            # it bothers to send one; fall back to 2**attempt when it doesn't.
+            retry_after = _parse_retry_after(response.headers.get("Retry-After"))
+            time.sleep(retry_after if retry_after is not None else 2**attempt)
             continue
         if response.status_code != 200:
             return _result(venue, year, "unreachable", 0, url, f"HTTP {response.status_code}")

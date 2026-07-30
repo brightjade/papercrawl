@@ -76,11 +76,15 @@ def _venue(**kw) -> Venue:
     return Venue(**base)
 
 
-def _response(status=200, text=""):
+def _response(status=200, text="", headers=None):
     r = MagicMock()
     r.status_code = status
     r.text = text
     r.content = text.encode()
+    # A real dict, not an auto-vivified MagicMock attribute: `.get(...)` on an
+    # unconfigured MagicMock returns another MagicMock rather than `None`,
+    # which would make Retry-After parsing see a bogus non-None value.
+    r.headers = headers or {}
     return r
 
 
@@ -245,7 +249,29 @@ class TestDblpProbe:
         assert out.status == "unreachable"
         assert "429" in out.note
 
-    def test_paces_at_one_second(self, monkeypatch):
+    @pytest.mark.parametrize("status", [500, 502, 503, 504])
+    def test_5xx_is_retried_like_429(self, no_sleep, status):
+        """Real sweeps on 2026-07-30 hit 500 and 503 under load, not just 429 --
+        both cleared on a plain retry seconds later, so both must be retried
+        here too instead of read as a terminal failure."""
+        ok = _response(200); ok.json = lambda: {"result": {"hits": {"@total": "9"}}}
+        with patch("ppr.discover.requests.get", side_effect=[_response(status), ok]):
+            out = probe(self._venue(), 2026)
+        assert (out.status, out.count) == ("live", 9)
+
+    def test_retry_after_header_is_honored_over_the_backoff_guess(self, monkeypatch):
+        """DBLP's own Retry-After is a real measurement; 2**attempt is a guess
+        that should only apply when the server doesn't say."""
+        slept = []
+        monkeypatch.setattr("ppr.discover.time.sleep", lambda s: slept.append(s))
+        ok = _response(200); ok.json = lambda: {"result": {"hits": {"@total": "3"}}}
+        throttled = _response(429, headers={"Retry-After": "30"})
+        with patch("ppr.discover.requests.get", side_effect=[throttled, ok]):
+            out = probe(self._venue(), 2026)
+        assert (out.status, out.count) == ("live", 3)
+        assert 30.0 in slept
+
+    def test_paces_at_four_seconds(self, monkeypatch):
         slept = []
         monkeypatch.setattr("ppr.discover.time.sleep", lambda s: slept.append(s))
         ok = _response(200); ok.json = lambda: {"result": {"hits": {"@total": "1"}}}
