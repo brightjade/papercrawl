@@ -71,6 +71,8 @@ uv run ppr validate <conf_id>   # only if a DBLP key exists for it
 
 The crawled count should be close to the probe's count. If it is far off, stop and report — do not proceed to Phase 3 with a suspect crawl.
 
+One exception: a venue with extra track venue IDs (`extra_venue_ids` in its config, e.g. NeurIPS Datasets & Benchmarks) is crawled across several venue IDs while the probe queries only one, so the crawl legitimately comes back *higher*. Check the extra tracks' counts add up rather than treating the gap as a fault.
+
 Also update the conference table in `README.md`.
 
 ## Phase 3 — Full pipeline
