@@ -50,7 +50,10 @@ venues:
     source: dblp
     cadence: annual
     announce_month: 12
-    probe: {toc: "db/conf/sigsoft/fse{year}.bht"}
+    probe:
+      toc:
+        - "db/conf/sigsoft/fse{year}.bht"
+        - "db/journals/pacmse/pacmse{pacmse_vol}.bht"
   ase:
     name: ASE
     source: dblp
@@ -62,7 +65,10 @@ venues:
     source: dblp
     cadence: annual
     announce_month: 5
-    probe: {toc: "db/conf/issta/issta{year}.bht"}
+    probe:
+      toc:
+        - "db/conf/issta/issta{year}.bht"
+        - "db/journals/pacmse/pacmse{pacmse_vol}.bht"
   icra:
     name: ICRA
     source: dblp

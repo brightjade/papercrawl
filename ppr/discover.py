@@ -1,9 +1,14 @@
 """Find conference-years that have published a list we have not registered."""
 
 import logging
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
-from ppr.venues import REGISTRY_STEM
+import requests
+from bs4 import BeautifulSoup
+
+from ppr.venues import MANUAL_SOURCES, REGISTRY_STEM, Venue
 
 logger = logging.getLogger(__name__)
 
@@ -56,3 +61,198 @@ def missing_years(
         for year in range(min(known), today_year + 2)
         if _matches_cadence(year, cadence) and year not in known
     ]
+
+
+# A page-scraping probe must clear this to count as live. Above the 9 links
+# CVPR 2026's stub page yields, far below the smallest proceedings tracked
+# (ISSTA 2025, 110 papers). DBLP and OpenReview report exact record counts,
+# so any count above zero is real for them.
+MIN_LIVE_PAPERS = 50
+
+# DBLP throttles hard: a sweep at 0.4s intervals drew a 429 on the fourth
+# request and refused connections thereafter.
+DBLP_MIN_INTERVAL = 1.0
+DBLP_MAX_RETRIES = 5
+DBLP_API_URL = "https://dblp.org/search/publ/api"
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    ),
+}
+
+_last_dblp_request = 0.0
+
+
+@dataclass
+class ProbeResult:
+    conf_id: str
+    prefix: str
+    year: int
+    status: str  # live | empty | not-yet | unreachable | needs-manual
+    count: int
+    url: str
+    note: str = ""
+
+
+def _result(venue: Venue, year: int, status: str, count: int, url: str, note: str = "") -> ProbeResult:
+    return ProbeResult(
+        conf_id=f"{venue.prefix}_{year}", prefix=venue.prefix, year=year,
+        status=status, count=count, url=url, note=note,
+    )
+
+
+def _classify_page(count: int) -> str:
+    """A reachable page with too few papers is `empty`, never `not-yet`.
+
+    The distinction matters: `not-yet` is the ordinary state of an unpublished
+    conference, while `empty` past the venue's announce month is the signature
+    of a selector the site outgrew. Collapsing them would make a redesign
+    indistinguishable from a quiet month.
+    """
+    return "live" if count >= MIN_LIVE_PAPERS else "empty"
+
+
+def _probe_cvf(venue: Venue, year: int) -> ProbeResult:
+    url = venue.probe["url"].format(year=year)
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=60)
+    except requests.RequestException as exc:
+        return _result(venue, year, "unreachable", 0, url, f"{type(exc).__name__}")
+
+    if response.status_code == 404:
+        return _result(venue, year, "not-yet", 0, url)
+    if response.status_code != 200:
+        return _result(venue, year, "unreachable", 0, url, f"HTTP {response.status_code}")
+
+    # ECVA publishes every ECCV year on one page, so presence of the year's
+    # marker decides whether it is there at all.
+    marker = venue.probe.get("marker")
+    if marker and marker.format(year=year) not in response.text:
+        return _result(venue, year, "not-yet", 0, url)
+
+    count = len(BeautifulSoup(response.text, "html.parser").select("dt.ptitle"))
+    return _result(venue, year, _classify_page(count), count, url)
+
+
+def _probe_usenix(venue: Venue, year: int) -> ProbeResult:
+    slug = venue.probe["slug"].format(yy=f"{year % 100:02d}")
+    url = f"https://www.usenix.org/conference/{slug}/technical-sessions"
+    try:
+        response = requests.get(url, headers=HEADERS, timeout=60)
+    except requests.RequestException as exc:
+        return _result(venue, year, "unreachable", 0, url, f"{type(exc).__name__}")
+
+    if response.status_code == 404:
+        return _result(venue, year, "not-yet", 0, url)
+    if response.status_code != 200:
+        return _result(venue, year, "unreachable", 0, url, f"HTTP {response.status_code}")
+
+    count = len(BeautifulSoup(response.text, "html.parser").select("article.node-paper"))
+    return _result(venue, year, _classify_page(count), count, url)
+
+
+def _dblp_toc_candidates(venue: Venue, year: int) -> list[str]:
+    """Every toc key worth trying for this venue-year, in order.
+
+    Most venues have one stable key. FSE and ISSTA do not: both migrated to
+    shared PACMSE journal volumes (FSE from 2024, ISSTA from 2025), whose
+    volume number is not the year -- pacmse1 is 2024, pacmse2 is 2025. A single
+    `{year}` template cannot express that, so those venues list several
+    candidates and the probe takes the first that returns hits.
+    """
+    toc = venue.probe["toc"]
+    templates = [toc] if isinstance(toc, str) else list(toc)
+    return [t.format(year=year, pacmse_vol=year - 2023) for t in templates]
+
+
+def _probe_dblp(venue: Venue, year: int) -> ProbeResult:
+    """Try each candidate toc key; the first with hits wins."""
+    candidates = _dblp_toc_candidates(venue, year)
+    last = None
+    for key in candidates:
+        last = _probe_dblp_key(venue, year, key)
+        if last.status != "not-yet":
+            return last
+    return last
+
+
+def _probe_dblp_key(venue: Venue, year: int, key: str) -> ProbeResult:
+    global _last_dblp_request
+    url = f"https://dblp.org/db/{key.removeprefix('db/').removesuffix('.bht')}.html"
+
+    for attempt in range(DBLP_MAX_RETRIES):
+        elapsed = time.monotonic() - _last_dblp_request
+        if elapsed < DBLP_MIN_INTERVAL:
+            time.sleep(DBLP_MIN_INTERVAL - elapsed)
+        _last_dblp_request = time.monotonic()
+
+        try:
+            response = requests.get(
+                DBLP_API_URL,
+                params={"q": f"toc:{key}:", "h": 1, "f": 0, "format": "json"},
+                headers=HEADERS,
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            time.sleep(2**attempt)
+            continue
+
+        if response.status_code == 429:
+            time.sleep(2**attempt)
+            continue
+        if response.status_code != 200:
+            return _result(venue, year, "unreachable", 0, url, f"HTTP {response.status_code}")
+
+        try:
+            total = int(response.json()["result"]["hits"]["@total"])
+        except (KeyError, TypeError, ValueError):
+            return _result(venue, year, "unreachable", 0, url, "unparseable response")
+
+        status = "live" if total > 0 else "not-yet"
+        return _result(venue, year, status, total, url)
+
+    return _result(venue, year, "unreachable", 0, url, f"HTTP 429 after {DBLP_MAX_RETRIES} attempts")
+
+
+def _probe_openreview(venue: Venue, year: int, client) -> ProbeResult:
+    venue_id = venue.probe["venue_id"].format(year=year)
+    url = f"https://openreview.net/group?id={venue_id}"
+
+    if client is None:
+        return _result(
+            venue, year, "unreachable", 0, url,
+            "no OpenReview credentials -- venue not probed",
+        )
+    try:
+        notes = client.get_all_notes(content={"venueid": venue_id})
+    except Exception as exc:  # openreview-py raises its own exception types
+        return _result(venue, year, "unreachable", 0, url, f"{type(exc).__name__}")
+
+    status = "live" if notes else "not-yet"
+    return _result(venue, year, status, len(notes), url)
+
+
+def probe(venue: Venue, year: int, *, openreview_client=None) -> ProbeResult:
+    """Ask one source whether a conference-year's paper list is up.
+
+    The answer is a parsed paper count, never an HTTP status code: measured on
+    2026-07-29, CVPR 2026 returned 200 with a stub and zero papers while WACV
+    2027 returned 404 with a 29KB body. Status-code logic gets both backwards.
+    """
+    if venue.source in MANUAL_SOURCES:
+        url = venue.probe.get("url", "").format(year=year)
+        return _result(
+            venue, year, "needs-manual", 0, url,
+            "registration needs a hand-written scraper",
+        )
+    if venue.source == "dblp":
+        return _probe_dblp(venue, year)
+    if venue.source == "cvf":
+        return _probe_cvf(venue, year)
+    if venue.source == "usenix":
+        return _probe_usenix(venue, year)
+    if venue.source == "openreview":
+        return _probe_openreview(venue, year, openreview_client)
+    raise ValueError(f"no probe for source {venue.source!r}")
