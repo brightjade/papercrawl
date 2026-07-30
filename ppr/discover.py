@@ -126,13 +126,27 @@ def _probe_cvf(venue: Venue, year: int) -> ProbeResult:
     if response.status_code != 200:
         return _result(venue, year, "unreachable", 0, url, f"HTTP {response.status_code}")
 
-    # ECVA publishes every ECCV year on one page, so presence of the year's
-    # marker decides whether it is there at all.
-    marker = venue.probe.get("marker")
-    if marker and marker.format(year=year) not in response.text:
-        return _result(venue, year, "not-yet", 0, url)
+    soup = BeautifulSoup(response.text, "html.parser")
+    scope = soup
 
-    count = len(BeautifulSoup(response.text, "html.parser").select("dt.ptitle"))
+    # ECVA publishes every ECCV year on one page, so presence of the year's
+    # marker decides whether it is there at all -- and the count must be
+    # scoped to that year's accordion section the way ppr/scrapers/cvf.py's
+    # _parse_ecva does, since the page lists every ECCV year's papers at once.
+    marker = venue.probe.get("marker")
+    if marker:
+        if marker.format(year=year) not in response.text:
+            return _result(venue, year, "not-yet", 0, url)
+
+        scope = None
+        for btn in soup.select("button.accordion"):
+            if str(year) in btn.get_text():
+                scope = btn.find_next_sibling("div", class_="accordion-content")
+                break
+        if scope is None:
+            return _result(venue, year, "not-yet", 0, url)
+
+    count = len(scope.select("dt.ptitle"))
     return _result(venue, year, _classify_page(count), count, url)
 
 
@@ -153,7 +167,7 @@ def _probe_usenix(venue: Venue, year: int) -> ProbeResult:
     return _result(venue, year, _classify_page(count), count, url)
 
 
-def _dblp_toc_candidates(venue: Venue, year: int) -> list[str]:
+def _dblp_toc_candidates(venue: Venue, year: int) -> list[dict]:
     """Every toc key worth trying for this venue-year, in order.
 
     Most venues have one stable key. FSE and ISSTA do not: both migrated to
@@ -161,27 +175,58 @@ def _dblp_toc_candidates(venue: Venue, year: int) -> list[str]:
     volume number is not the year -- pacmse1 is 2024, pacmse2 is 2025. A single
     `{year}` template cannot express that, so those venues list several
     candidates and the probe takes the first that returns hits.
+
+    FSE and ISSTA can even share the *same* volume -- pacmse2 holds both FSE
+    2025 and ISSTA 2025 -- distinguished only by each entry's `number` field.
+    A candidate can carry a `number` filter for exactly this case; the plain
+    string form is shorthand for "no filter, trust `@total`".
     """
     toc = venue.probe["toc"]
-    templates = [toc] if isinstance(toc, str) else list(toc)
-    return [t.format(year=year, pacmse_vol=year - 2023) for t in templates]
+    templates = list(toc) if isinstance(toc, list) else [toc]
+
+    candidates = []
+    for template in templates:
+        if isinstance(template, dict):
+            key = template["key"].format(year=year, pacmse_vol=year - 2023)
+            candidates.append({"key": key, "number": template.get("number")})
+        else:
+            key = template.format(year=year, pacmse_vol=year - 2023)
+            candidates.append({"key": key, "number": None})
+    return candidates
 
 
 def _probe_dblp(venue: Venue, year: int) -> ProbeResult:
-    """Try each candidate toc key; the first with hits wins."""
+    """Try each candidate toc key; the first with hits wins.
+
+    Stopping at anything other than `not-yet` (in particular, `unreachable`)
+    matters as much as stopping at a hit: a candidate throttled into
+    `unreachable` must not be papered over by a later candidate's `not-yet`,
+    or a throttled sweep would misreport as "nothing new".
+    """
     candidates = _dblp_toc_candidates(venue, year)
     last = None
-    for key in candidates:
-        last = _probe_dblp_key(venue, year, key)
+    for candidate in candidates:
+        last = _probe_dblp_key(venue, year, candidate["key"], number=candidate["number"])
         if last.status != "not-yet":
             return last
     return last
 
 
-def _probe_dblp_key(venue: Venue, year: int, key: str) -> ProbeResult:
+def _probe_dblp_key(venue: Venue, year: int, key: str, number: str | None = None) -> ProbeResult:
+    """Query one toc key's hit count.
+
+    When `number` is set, the key names a shared PACMSE volume: `@total`
+    covers every venue in that volume, so hits are fetched in bulk (`h=1000`
+    -- a volume holds a few hundred entries at most) and counted only where
+    the entry's `number` field matches, the same way `ppr/scrapers/dblp.py`'s
+    `_fetch_dblp` does (including its treatment of a missing field as a
+    non-match via `.get`).
+    """
     global _last_dblp_request
     url = f"https://dblp.org/db/{key.removeprefix('db/').removesuffix('.bht')}.html"
+    hits_per_page = 1000 if number else 1
 
+    last_failure = ""
     for attempt in range(DBLP_MAX_RETRIES):
         elapsed = time.monotonic() - _last_dblp_request
         if elapsed < DBLP_MIN_INTERVAL:
@@ -191,29 +236,41 @@ def _probe_dblp_key(venue: Venue, year: int, key: str) -> ProbeResult:
         try:
             response = requests.get(
                 DBLP_API_URL,
-                params={"q": f"toc:{key}:", "h": 1, "f": 0, "format": "json"},
+                params={"q": f"toc:{key}:", "h": hits_per_page, "f": 0, "format": "json"},
                 headers=HEADERS,
                 timeout=30,
             )
         except requests.RequestException as exc:
+            last_failure = type(exc).__name__
             time.sleep(2**attempt)
             continue
 
         if response.status_code == 429:
+            last_failure = "HTTP 429"
             time.sleep(2**attempt)
             continue
         if response.status_code != 200:
             return _result(venue, year, "unreachable", 0, url, f"HTTP {response.status_code}")
 
         try:
-            total = int(response.json()["result"]["hits"]["@total"])
+            hits_data = response.json()["result"]["hits"]
+            if number:
+                hits = hits_data.get("hit", [])
+                if isinstance(hits, dict):
+                    hits = [hits]
+                total = sum(1 for hit in hits if hit.get("info", {}).get("number") == number)
+            else:
+                total = int(hits_data["@total"])
         except (KeyError, TypeError, ValueError):
             return _result(venue, year, "unreachable", 0, url, "unparseable response")
 
         status = "live" if total > 0 else "not-yet"
         return _result(venue, year, status, total, url)
 
-    return _result(venue, year, "unreachable", 0, url, f"HTTP 429 after {DBLP_MAX_RETRIES} attempts")
+    return _result(
+        venue, year, "unreachable", 0, url,
+        f"{last_failure} after {DBLP_MAX_RETRIES} attempts",
+    )
 
 
 def _probe_openreview(venue: Venue, year: int, client) -> ProbeResult:

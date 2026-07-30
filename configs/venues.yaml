@@ -53,7 +53,7 @@ venues:
     probe:
       toc:
         - "db/conf/sigsoft/fse{year}.bht"
-        - "db/journals/pacmse/pacmse{pacmse_vol}.bht"
+        - {key: "db/journals/pacmse/pacmse{pacmse_vol}.bht", number: "FSE"}
   ase:
     name: ASE
     source: dblp
@@ -68,7 +68,7 @@ venues:
     probe:
       toc:
         - "db/conf/issta/issta{year}.bht"
-        - "db/journals/pacmse/pacmse{pacmse_vol}.bht"
+        - {key: "db/journals/pacmse/pacmse{pacmse_vol}.bht", number: "ISSTA"}
   icra:
     name: ICRA
     source: dblp

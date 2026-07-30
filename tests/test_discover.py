@@ -135,6 +135,22 @@ class TestCvfProbe:
         with patch("ppr.discover.requests.get", return_value=_response(200, "ECCV 2024 papers")):
             assert probe(v, 2026).status == "not-yet"
 
+    def test_ecva_count_is_scoped_to_the_requested_year(self):
+        """The ECVA page lists every ECCV year's papers on one page; the count
+        must come from the requested year's accordion section, not the whole page."""
+        html = (
+            '<button class="accordion">ECCV 2024</button>'
+            '<div class="accordion-content">' + CVF_PAPER * 40 + "</div>"
+            '<button class="accordion">ECCV 2026</button>'
+            '<div class="accordion-content">' + CVF_PAPER * 5 + "</div>"
+        )
+        v = _venue(prefix="eccv", name="ECCV", cadence="biennial-even",
+                   probe={"url": "https://ecva.test/papers.php", "marker": "ECCV {year}"})
+        with patch("ppr.discover.requests.get", return_value=_response(200, html)):
+            r = probe(v, 2026)
+        assert r.count == 5
+        assert r.status == "empty"  # below MIN_LIVE_PAPERS, unlike the 40 in 2024's section
+
 
 class TestUsenixProbe:
     def test_populated_page_is_live(self):
@@ -151,7 +167,7 @@ class TestDblpProbe:
         return _venue(prefix="icse", name="ICSE", source="dblp",
                       probe={"toc": "db/conf/icse/icse{year}.bht"})
 
-    def test_falls_through_toc_candidates_until_one_has_hits(self):
+    def test_falls_through_toc_candidates_until_one_has_hits(self, no_sleep):
         """FSE moved to shared PACMSE volumes; the old conf key is dead for 2024+."""
         v = _venue(prefix="fse", name="FSE", source="dblp", probe={"toc": [
             "db/conf/sigsoft/fse{year}.bht",
@@ -165,7 +181,7 @@ class TestDblpProbe:
         # pacmse1 is 2024, so 2026 must resolve to volume 3 -- not the year.
         assert "pacmse3" in g.call_args_list[1].kwargs["params"]["q"]
 
-    def test_stops_at_the_first_candidate_with_hits(self):
+    def test_stops_at_the_first_candidate_with_hits(self, no_sleep):
         v = _venue(prefix="fse", name="FSE", source="dblp", probe={"toc": [
             "db/conf/sigsoft/fse{year}.bht",
             "db/journals/pacmse/pacmse{pacmse_vol}.bht",
@@ -176,7 +192,7 @@ class TestDblpProbe:
         assert out.count == 206
         assert g.call_count == 1
 
-    def test_all_candidates_empty_is_not_yet(self):
+    def test_all_candidates_empty_is_not_yet(self, no_sleep):
         v = _venue(prefix="fse", name="FSE", source="dblp", probe={"toc": [
             "db/conf/sigsoft/fse{year}.bht",
             "db/journals/pacmse/pacmse{pacmse_vol}.bht",
@@ -185,20 +201,20 @@ class TestDblpProbe:
         with patch("ppr.discover.requests.get", return_value=miss):
             assert probe(v, 2027).status == "not-yet"
 
-    def test_a_plain_string_toc_still_works(self):
+    def test_a_plain_string_toc_still_works(self, no_sleep):
         ok = _response(200); ok.json = lambda: {"result": {"hits": {"@total": "245"}}}
         with patch("ppr.discover.requests.get", return_value=ok) as g:
             assert probe(self._venue(), 2026).count == 245
         assert g.call_count == 1
 
-    def test_hits_means_live(self):
+    def test_hits_means_live(self, no_sleep):
         payload = {"result": {"hits": {"@total": "245"}}}
         r = _response(200); r.json = lambda: payload
         with patch("ppr.discover.requests.get", return_value=r):
             out = probe(self._venue(), 2026)
         assert (out.status, out.count) == ("live", 245)
 
-    def test_zero_hits_is_not_yet(self):
+    def test_zero_hits_is_not_yet(self, no_sleep):
         payload = {"result": {"hits": {"@total": "0"}}}
         r = _response(200); r.json = lambda: payload
         with patch("ppr.discover.requests.get", return_value=r):
@@ -224,7 +240,65 @@ class TestDblpProbe:
         with patch("ppr.discover.requests.get", return_value=ok):
             probe(self._venue(), 2026)
             probe(self._venue(), 2027)
-        assert slept and max(slept) <= DBLP_MIN_INTERVAL
+        assert slept
+        # The two calls happen back-to-back with no real wait between them, so
+        # the second must sleep close to the full interval -- an implementation
+        # that under-sleeps (e.g. a hardcoded 0.001s) must fail this.
+        assert max(slept) > DBLP_MIN_INTERVAL - 0.05
+        assert max(slept) <= DBLP_MIN_INTERVAL
+
+    def test_unreachable_first_candidate_is_not_papered_over_by_second_candidate(self, no_sleep):
+        """A throttled first candidate must stop the sweep, not fall through.
+
+        Falling through to a second candidate's `not-yet` here would turn a
+        throttled DBLP into a false "nothing new" -- exactly the failure mode
+        DBLP_MAX_RETRIES + backoff exists to avoid.
+        """
+        v = _venue(prefix="fse", name="FSE", source="dblp", probe={"toc": [
+            "db/conf/sigsoft/fse{year}.bht",
+            "db/journals/pacmse/pacmse{pacmse_vol}.bht",
+        ]})
+        with patch("ppr.discover.requests.get", return_value=_response(429)) as g:
+            out = probe(v, 2026)
+        assert out.status == "unreachable"
+        # Only the first candidate's key was ever queried.
+        assert all("pacmse" not in c.kwargs["params"]["q"] for c in g.call_args_list)
+
+    def test_number_filter_isolates_shared_pacmse_volume(self, no_sleep):
+        """FSE and ISSTA can share one PACMSE volume; without a number filter,
+        the FSE probe would count ISSTA's papers as its own."""
+        v = _venue(prefix="fse", name="FSE", source="dblp", probe={"toc": [
+            "db/conf/sigsoft/fse{year}.bht",
+            {"key": "db/journals/pacmse/pacmse{pacmse_vol}.bht", "number": "FSE"},
+        ]})
+        miss = _response(200); miss.json = lambda: {"result": {"hits": {"@total": "0"}}}
+        shared = _response(200)
+        shared.json = lambda: {"result": {"hits": {
+            "@total": "300",
+            "hit": (
+                [{"info": {"number": "FSE"}}] * 120
+                + [{"info": {"number": "ISSTA"}}] * 180
+            ),
+        }}}
+        with patch("ppr.discover.requests.get", side_effect=[miss, shared]) as g:
+            out = probe(v, 2026)
+        assert (out.status, out.count) == ("live", 120)
+        assert g.call_args_list[1].kwargs["params"]["h"] == 1000
+
+    def test_number_filter_excludes_hits_missing_the_field(self, no_sleep):
+        """Mirrors ppr/scrapers/dblp.py's `h.get("number") == number`: an entry
+        with no `number` field at all is a non-match, not a crash."""
+        v = _venue(prefix="issta", name="ISSTA", source="dblp", probe={"toc": [
+            {"key": "db/journals/pacmse/pacmse{pacmse_vol}.bht", "number": "ISSTA"},
+        ]})
+        resp = _response(200)
+        resp.json = lambda: {"result": {"hits": {
+            "@total": "2",
+            "hit": [{"info": {}}, {"info": {"number": "ISSTA"}}],
+        }}}
+        with patch("ppr.discover.requests.get", return_value=resp):
+            out = probe(v, 2026)
+        assert out.count == 1
 
 
 class TestOpenreviewProbe:
