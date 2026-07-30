@@ -42,6 +42,8 @@ from ppr.register import register_cvf
 register_cvf("cvpr_2026", "https://openaccess.thecvf.com/CVPR2026?day=all", "openaccess", Path("ppr/scrapers/cvf.py"))
 ```
 
+All three writers append just before the dict's closing brace, so a new entry lands at the end regardless of which commented group it belongs to. Move it into place and switch a hardcoded host to the module's `CVF_BASE_URL` / `ECVA_BASE_URL` constant if one applies — that is what reviewing the diff is for.
+
 **USENIX** — the slug is `usenixsecurity` plus the two-digit year:
 
 ```python
@@ -49,17 +51,24 @@ from ppr.register import register_usenix
 register_usenix("usenix_security_2026", "usenixsecurity26", Path("ppr/scrapers/usenix.py"))
 ```
 
-**OpenReview** — never write `selections` by following another year's pattern. Read them from the API:
+**OpenReview** — never write `selections` by following another year's pattern. Read them from the API. Load `.env` first: only `ppr/cli.py` calls `load_dotenv()`, so a standalone script otherwise dies with "No OpenReview credentials provided".
 
 ```python
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()  # required — api_client does not load it itself
+
 from ppr.api_client import create_openreview_client
 from ppr.register import openreview_selections, render_openreview_config
 client = create_openreview_client()
 sel = openreview_selections(client, "ICLR.cc/2027/Conference")
+print(sel)  # review before writing
 Path("configs/iclr_2027.yaml").write_text(render_openreview_config("ICLR", 2027, "ICLR.cc/2027/Conference", sel))
 ```
 
-`configs/corl_2024.yaml` followed the 2023/2025 pattern, matched nothing, and wrote an empty file that went unnoticed for months. `openreview_selections` reads what the venue actually tags its papers with.
+`configs/corl_2024.yaml` followed the 2023/2025 pattern, matched nothing, and wrote an empty file that went unnoticed for months. ICML 2026 proved the point again: it tags papers `"ICML 2026 regular"` / `"ICML 2026 spotlight"` where 2025 used `oral` / `spotlightposter` / `poster`.
+
+**Review the generated selection names before crawling.** `openreview_selections` derives a key from each venue string, falling back to a slug when no track word matches — ICML 2026's "regular" became `icml_2026_regular`. That name lands on every paper and shows up in the web app's track breakdown, so rename it to the project's vocabulary: `main` for a base track (61k papers already use it), then `oral`, `poster`, `spotlight`, `findings`, `industry`.
 
 Then crawl and check:
 
@@ -73,7 +82,29 @@ The crawled count should be close to the probe's count. If it is far off, stop a
 
 One exception: a venue with extra track venue IDs (`extra_venue_ids` in its config, e.g. NeurIPS Datasets & Benchmarks) is crawled across several venue IDs while the probe queries only one, so the crawl legitimately comes back *higher*. Check the extra tracks' counts add up rather than treating the gap as a fault.
 
-Also update the conference table in `README.md`.
+Also update the conference table in `README.md`, and run `uv run pytest tests/` — several scraper tests pin the exact set of registered conference IDs (`tests/test_cvf.py::TestCvfScrapersDict::test_expected_conference_ids` is one), so they fail by design when you add a venue. Add the new ID to the expected set; a failure there is the test doing its job, not a regression.
+
+## Phase 2b — Decide whether to enrich now or later
+
+A conference published days ago is usually absent from Semantic Scholar, and enriching it then costs hours for almost nothing. **Check before committing to it:**
+
+```python
+import os, httpx
+from dotenv import load_dotenv
+load_dotenv()
+h = {"x-api-key": os.environ["SEMANTIC_SCHOLAR_API_KEY"]}
+r = httpx.get("https://api.semanticscholar.org/graph/v1/paper/search/bulk",
+              params={"venue": "<S2 venue string from ppr/enrich.py's S2_VENUE_NAMES>",
+                      "year": "<year>", "fields": "title"},
+              headers=h, timeout=60.0)
+print(r.json().get("total"))  # compare against the crawled count
+```
+
+Measured on 2026-07-30, the day after both published: **CVPR 2026 → 0 indexed, ICML 2026 → 17**, against 4068 and 6341 crawled. Their 2025 editions sat at 67% and 83%, so the venue strings were fine — it is pure indexing lag. USENIX Security 2026 took **3h09m for 381 papers** under that condition and matched only 40%, all arXiv preprints.
+
+So: if coverage is near zero, **crawl now and enrich later**. The papers reach the site immediately without citation counts, and a run once Semantic Scholar has caught up covers 70-80% by bulk prefetch instead of grinding every paper through title matching. Waiting is worth roughly two orders of magnitude here.
+
+If you skip enrichment, say so plainly and stop before Phase 3 — a partial dataset should not be silently released.
 
 ## Phase 3 — Full pipeline
 
