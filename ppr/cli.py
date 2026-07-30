@@ -12,7 +12,7 @@ from ppr.scrapers import SCRAPERS
 from ppr.api_client import OpenReviewAPIClient, create_openreview_client, create_openreview_v1_client
 from ppr.config import CrawlConfig
 from ppr.enrich import enrich_all, format_enrich_summary
-from ppr.models import Paper
+from ppr.models import Paper, write_papers
 from ppr.s2_client import S2Client
 from ppr.venues import REGISTRY_STEM
 
@@ -40,12 +40,10 @@ def all_conference_ids(data_dir: Path) -> list[str]:
 
 
 def _save_papers(papers: list[Paper], conf_id: str) -> Path:
-    save_path = DATA_DIR / conf_id / "papers.jsonl"
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(save_path, "w", encoding="utf-8") as f:
-        for paper in papers:
-            f.write(paper.to_json() + "\n")
-    return save_path
+    # Shares `write_papers`' refusal with the OpenReview save path: a scraper
+    # whose selector a site redesign outgrew returns `[]` just as an API error
+    # does, and must not silently erase the last good crawl either.
+    return write_papers(papers, DATA_DIR / conf_id / "papers.jsonl")
 
 
 def _add_auth_args(parser: argparse.ArgumentParser) -> None:
@@ -247,6 +245,15 @@ def cmd_discover(args: argparse.Namespace) -> None:
 
     registry = load_registry()
     if args.venue:
+        # A prefix that matches nothing would silently narrow the sweep to zero
+        # venues and report "no new lists ready to register" -- a typo reading
+        # as good news. Name the offenders instead.
+        unknown = sorted(set(args.venue) - set(registry))
+        if unknown:
+            raise SystemExit(
+                f"Unknown venue prefix(es): {', '.join(unknown)}. "
+                f"Known prefixes: {', '.join(sorted(registry))}"
+            )
         registry = {k: v for k, v in registry.items() if k in args.venue}
 
     # OpenReview refuses anonymous venueid queries, so probe those venues only
@@ -267,7 +274,7 @@ def cmd_discover(args: argparse.Namespace) -> None:
     results = discover(
         registry, known_conference_ids(), today.year, openreview_client=or_client
     )
-    stale = stale_empty(results, registry, today.month)
+    stale = stale_empty(results, registry, today.month, today.year)
     if args.json:
         print(results_to_json(results, stale=stale))
     else:

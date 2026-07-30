@@ -118,6 +118,7 @@ class TestOpenReviewAPIClient:
 import pytest
 
 from ppr.api_client import EmptyCrawlError, OpenReviewAPIClient
+from ppr.models import EmptyOverwriteError
 
 
 class TestEmptyCrawlGuard:
@@ -157,3 +158,33 @@ class TestEmptyCrawlGuard:
     def test_no_notes_at_all_is_not_an_error(self):
         client = self._client([], {"main": "X"})
         assert client.fetch_papers() == []
+
+
+class TestSaveGuard:
+    def _client(self, tmp_path):
+        config = CrawlConfig(
+            name="CoRL", year=2024, venue_id="X",
+            selections={"poster": "X"},
+            conference_id="corl_2024",
+        )
+        save_path = tmp_path / "papers.jsonl"
+        config.get_save_path = lambda: save_path
+        return OpenReviewAPIClient(config, MagicMock()), save_path
+
+    def test_refuses_to_erase_an_existing_crawl(self, tmp_path):
+        """`fetch_papers` returns `[]` on an OpenReviewException, so the save
+        path is the second door onto the CoRL 2024 failure -- an empty file
+        written over a good one while the log says "Saved 0 papers"."""
+        client, save_path = self._client(tmp_path)
+        client.save_papers([Paper(title="P1", link="L1", authors=["A"], selection="poster")])
+        before = save_path.read_bytes()
+
+        with pytest.raises(EmptyOverwriteError):
+            client.save_papers([])
+
+        assert save_path.read_bytes() == before
+
+    def test_first_crawl_of_an_empty_venue_still_writes(self, tmp_path):
+        client, save_path = self._client(tmp_path)
+        client.save_papers([])
+        assert save_path.exists() and save_path.read_text() == ""

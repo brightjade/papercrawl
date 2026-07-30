@@ -2,13 +2,13 @@
 
 import json
 import logging
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
 
+from ppr import dblp_client
 from ppr.venues import MANUAL_SOURCES, REGISTRY_STEM, Venue
 
 logger = logging.getLogger(__name__)
@@ -70,33 +70,15 @@ def missing_years(
 # so any count above zero is real for them.
 MIN_LIVE_PAPERS = 50
 
-# DBLP throttles hard: a sweep at 0.4s intervals drew a 429 on the fourth
-# request and refused connections thereafter. 1.0s was not enough either --
-# two real sweeps on 2026-07-30 still lost 7-8 venue-years per run (the lost
-# set *shifted* between runs) to a mix of 429, 500, and 503 that cleared up
-# within seconds of a manual retry -- transient throttling, not an outage.
-# Bumping to 3.0s made it worse (every DBLP venue came back a hard
-# ConnectionError), which is the tell that this isn't a per-request interval
-# problem alone -- it's total request volume in a short window. dblp.org's own
-# robots.txt (checked 2026-07-30) specifies `Crawl-delay: 4`, which is the
-# number actually used here: a server-stated figure beats another guess.
-DBLP_MIN_INTERVAL = 4.0
-DBLP_MAX_RETRIES = 5
-# DBLP's overload signal isn't just 429 -- under sustained load it also
-# returns bare 500s and 503s that clear up on their own within seconds.
-# Treating those as terminal `unreachable` (as a first pass did) turns
-# ordinary throttling into permanent-looking failures.
-DBLP_RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
-DBLP_API_URL = "https://dblp.org/search/publ/api"
-
+# Pacing, retries and the DBLP endpoint itself live in `ppr/dblp_client.py`,
+# shared with `ppr/validate.py`. These headers are for the page-scraping probes
+# below (CVF, ECVA, USENIX), which several of those sites require.
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     ),
 }
-
-_last_dblp_request = 0.0
 
 
 @dataclass
@@ -233,17 +215,6 @@ def _probe_dblp(venue: Venue, year: int) -> ProbeResult:
     return last
 
 
-def _parse_retry_after(value: str | None) -> float | None:
-    """Parse a `Retry-After` header's delay-seconds form; `None` if absent or a
-    HTTP-date (rare for this API, and 2**attempt covers it well enough)."""
-    if value is None:
-        return None
-    try:
-        return max(0.0, float(value))
-    except (TypeError, ValueError):
-        return None
-
-
 def _probe_dblp_key(venue: Venue, year: int, key: str, number: str | None = None) -> ProbeResult:
     """Query one toc key's hit count.
 
@@ -254,58 +225,30 @@ def _probe_dblp_key(venue: Venue, year: int, key: str, number: str | None = None
     `_fetch_dblp` does (including its treatment of a missing field as a
     non-match via `.get`).
     """
-    global _last_dblp_request
     url = f"https://dblp.org/db/{key.removeprefix('db/').removesuffix('.bht')}.html"
     hits_per_page = 1000 if number else 1
 
-    last_failure = ""
-    for attempt in range(DBLP_MAX_RETRIES):
-        elapsed = time.monotonic() - _last_dblp_request
-        if elapsed < DBLP_MIN_INTERVAL:
-            time.sleep(DBLP_MIN_INTERVAL - elapsed)
-        _last_dblp_request = time.monotonic()
+    try:
+        payload = dblp_client.query(
+            {"q": f"toc:{key}:", "h": hits_per_page, "f": 0, "format": "json"}
+        )
+    except dblp_client.DblpUnavailable as exc:
+        return _result(venue, year, "unreachable", 0, url, str(exc))
 
-        try:
-            response = requests.get(
-                DBLP_API_URL,
-                params={"q": f"toc:{key}:", "h": hits_per_page, "f": 0, "format": "json"},
-                headers=HEADERS,
-                timeout=30,
-            )
-        except requests.RequestException as exc:
-            last_failure = type(exc).__name__
-            time.sleep(2**attempt)
-            continue
+    try:
+        hits_data = payload["result"]["hits"]
+        if number:
+            hits = hits_data.get("hit", [])
+            if isinstance(hits, dict):
+                hits = [hits]
+            total = sum(1 for hit in hits if hit.get("info", {}).get("number") == number)
+        else:
+            total = int(hits_data["@total"])
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return _result(venue, year, "unreachable", 0, url, "unparseable response")
 
-        if response.status_code in DBLP_RETRYABLE_STATUSES:
-            last_failure = f"HTTP {response.status_code}"
-            # DBLP's own Retry-After beats a guessed exponential backoff when
-            # it bothers to send one; fall back to 2**attempt when it doesn't.
-            retry_after = _parse_retry_after(response.headers.get("Retry-After"))
-            time.sleep(retry_after if retry_after is not None else 2**attempt)
-            continue
-        if response.status_code != 200:
-            return _result(venue, year, "unreachable", 0, url, f"HTTP {response.status_code}")
-
-        try:
-            hits_data = response.json()["result"]["hits"]
-            if number:
-                hits = hits_data.get("hit", [])
-                if isinstance(hits, dict):
-                    hits = [hits]
-                total = sum(1 for hit in hits if hit.get("info", {}).get("number") == number)
-            else:
-                total = int(hits_data["@total"])
-        except (KeyError, TypeError, ValueError, AttributeError):
-            return _result(venue, year, "unreachable", 0, url, "unparseable response")
-
-        status = "live" if total > 0 else "not-yet"
-        return _result(venue, year, status, total, url)
-
-    return _result(
-        venue, year, "unreachable", 0, url,
-        f"{last_failure} after {DBLP_MAX_RETRIES} attempts",
-    )
+    status = "live" if total > 0 else "not-yet"
+    return _result(venue, year, status, total, url)
 
 
 def _probe_openreview(venue: Venue, year: int, client) -> ProbeResult:
@@ -367,18 +310,30 @@ def discover(
 
 
 def stale_empty(
-    results: list[ProbeResult], registry: dict[str, Venue], today_month: int
+    results: list[ProbeResult],
+    registry: dict[str, Venue],
+    today_month: int,
+    today_year: int,
 ) -> list[ProbeResult]:
     """`empty` results whose announce month has passed -- probable broken selectors.
 
     A page that responds but yields no papers is normal before the venue
     publishes. After the month it usually publishes in, the likelier
     explanation is that the site changed and our selector no longer matches.
+
+    The year check is not redundant with the month check. `missing_years`
+    always proposes `today_year + 1`, so a month-only comparison would flag
+    every next-year candidate from `announce_month + 1` onward -- a `cvpr_2027`
+    stub in December 2026 satisfies `2 < 12`. That conference has not happened
+    yet, so its stub is the ordinary pre-publication state, and reporting it as
+    a probable broken selector would spend the credibility of the one channel
+    this design depends on.
     """
     return [
         r
         for r in results
         if r.status == "empty"
+        and r.year <= today_year
         and r.prefix in registry
         and registry[r.prefix].announce_month < today_month
     ]

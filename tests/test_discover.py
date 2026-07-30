@@ -58,8 +58,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
+from ppr.dblp_client import MIN_INTERVAL as DBLP_MIN_INTERVAL
 from ppr.discover import (
-    DBLP_MIN_INTERVAL,
     MIN_LIVE_PAPERS,
     ProbeResult,
     probe,
@@ -94,7 +94,17 @@ USENIX_PAPER = '<article class="node-paper"><h2>A Paper</h2></article>'
 
 @pytest.fixture
 def no_sleep(monkeypatch):
-    monkeypatch.setattr("ppr.discover.time.sleep", lambda *_: None)
+    """DBLP pacing and backoff live in ppr/dblp_client.py; no test waits for real."""
+    monkeypatch.setattr("ppr.dblp_client.time.sleep", lambda *_: None)
+
+
+class TestLiveFloor:
+    def test_floor_is_fifty(self):
+        """Pinned to a literal on purpose. Both floor tests below are written in
+        terms of the constant, so lowering it would keep them green while making
+        CVPR 2026's 9-link stub page read as `live` -- the false positive the
+        floor exists to prevent."""
+        assert MIN_LIVE_PAPERS == 50
 
 
 class TestCvfProbe:
@@ -191,7 +201,7 @@ class TestDblpProbe:
         ]})
         miss = _response(200); miss.json = lambda: {"result": {"hits": {"@total": "0"}}}
         hit = _response(200); hit.json = lambda: {"result": {"hits": {"@total": "132"}}}
-        with patch("ppr.discover.requests.get", side_effect=[miss, hit]) as g:
+        with patch("ppr.dblp_client.requests.get", side_effect=[miss, hit]) as g:
             out = probe(v, 2026)
         assert (out.status, out.count) == ("live", 132)
         # pacmse1 is 2024, so 2026 must resolve to volume 3 -- not the year.
@@ -203,7 +213,7 @@ class TestDblpProbe:
             "db/journals/pacmse/pacmse{pacmse_vol}.bht",
         ]})
         hit = _response(200); hit.json = lambda: {"result": {"hits": {"@total": "206"}}}
-        with patch("ppr.discover.requests.get", return_value=hit) as g:
+        with patch("ppr.dblp_client.requests.get", return_value=hit) as g:
             out = probe(v, 2023)
         assert out.count == 206
         assert g.call_count == 1
@@ -214,37 +224,37 @@ class TestDblpProbe:
             "db/journals/pacmse/pacmse{pacmse_vol}.bht",
         ]})
         miss = _response(200); miss.json = lambda: {"result": {"hits": {"@total": "0"}}}
-        with patch("ppr.discover.requests.get", return_value=miss):
+        with patch("ppr.dblp_client.requests.get", return_value=miss):
             assert probe(v, 2027).status == "not-yet"
 
     def test_a_plain_string_toc_still_works(self, no_sleep):
         ok = _response(200); ok.json = lambda: {"result": {"hits": {"@total": "245"}}}
-        with patch("ppr.discover.requests.get", return_value=ok) as g:
+        with patch("ppr.dblp_client.requests.get", return_value=ok) as g:
             assert probe(self._venue(), 2026).count == 245
         assert g.call_count == 1
 
     def test_hits_means_live(self, no_sleep):
         payload = {"result": {"hits": {"@total": "245"}}}
         r = _response(200); r.json = lambda: payload
-        with patch("ppr.discover.requests.get", return_value=r):
+        with patch("ppr.dblp_client.requests.get", return_value=r):
             out = probe(self._venue(), 2026)
         assert (out.status, out.count) == ("live", 245)
 
     def test_zero_hits_is_not_yet(self, no_sleep):
         payload = {"result": {"hits": {"@total": "0"}}}
         r = _response(200); r.json = lambda: payload
-        with patch("ppr.discover.requests.get", return_value=r):
+        with patch("ppr.dblp_client.requests.get", return_value=r):
             assert probe(self._venue(), 2026).status == "not-yet"
 
     def test_429_is_retried_then_succeeds(self, no_sleep):
         ok = _response(200); ok.json = lambda: {"result": {"hits": {"@total": "7"}}}
-        with patch("ppr.discover.requests.get", side_effect=[_response(429), ok]):
+        with patch("ppr.dblp_client.requests.get", side_effect=[_response(429), ok]):
             out = probe(self._venue(), 2026)
         assert (out.status, out.count) == ("live", 7)
 
     def test_persistent_429_is_unreachable_not_absent(self, no_sleep):
         """A throttled sweep must never read as 'nothing new'."""
-        with patch("ppr.discover.requests.get", return_value=_response(429)):
+        with patch("ppr.dblp_client.requests.get", return_value=_response(429)):
             out = probe(self._venue(), 2026)
         assert out.status == "unreachable"
         assert "429" in out.note
@@ -255,7 +265,7 @@ class TestDblpProbe:
         both cleared on a plain retry seconds later, so both must be retried
         here too instead of read as a terminal failure."""
         ok = _response(200); ok.json = lambda: {"result": {"hits": {"@total": "9"}}}
-        with patch("ppr.discover.requests.get", side_effect=[_response(status), ok]):
+        with patch("ppr.dblp_client.requests.get", side_effect=[_response(status), ok]):
             out = probe(self._venue(), 2026)
         assert (out.status, out.count) == ("live", 9)
 
@@ -263,19 +273,19 @@ class TestDblpProbe:
         """DBLP's own Retry-After is a real measurement; 2**attempt is a guess
         that should only apply when the server doesn't say."""
         slept = []
-        monkeypatch.setattr("ppr.discover.time.sleep", lambda s: slept.append(s))
+        monkeypatch.setattr("ppr.dblp_client.time.sleep", lambda s: slept.append(s))
         ok = _response(200); ok.json = lambda: {"result": {"hits": {"@total": "3"}}}
         throttled = _response(429, headers={"Retry-After": "30"})
-        with patch("ppr.discover.requests.get", side_effect=[throttled, ok]):
+        with patch("ppr.dblp_client.requests.get", side_effect=[throttled, ok]):
             out = probe(self._venue(), 2026)
         assert (out.status, out.count) == ("live", 3)
         assert 30.0 in slept
 
     def test_paces_at_four_seconds(self, monkeypatch):
         slept = []
-        monkeypatch.setattr("ppr.discover.time.sleep", lambda s: slept.append(s))
+        monkeypatch.setattr("ppr.dblp_client.time.sleep", lambda s: slept.append(s))
         ok = _response(200); ok.json = lambda: {"result": {"hits": {"@total": "1"}}}
-        with patch("ppr.discover.requests.get", return_value=ok):
+        with patch("ppr.dblp_client.requests.get", return_value=ok):
             probe(self._venue(), 2026)
             probe(self._venue(), 2027)
         assert slept
@@ -290,13 +300,13 @@ class TestDblpProbe:
 
         Falling through to a second candidate's `not-yet` here would turn a
         throttled DBLP into a false "nothing new" -- exactly the failure mode
-        DBLP_MAX_RETRIES + backoff exists to avoid.
+        ppr/dblp_client.py's retries + backoff exist to avoid.
         """
         v = _venue(prefix="fse", name="FSE", source="dblp", probe={"toc": [
             "db/conf/sigsoft/fse{year}.bht",
             "db/journals/pacmse/pacmse{pacmse_vol}.bht",
         ]})
-        with patch("ppr.discover.requests.get", return_value=_response(429)) as g:
+        with patch("ppr.dblp_client.requests.get", return_value=_response(429)) as g:
             out = probe(v, 2026)
         assert out.status == "unreachable"
         # Only the first candidate's key was ever queried.
@@ -318,7 +328,7 @@ class TestDblpProbe:
                 + [{"info": {"number": "ISSTA"}}] * 180
             ),
         }}}
-        with patch("ppr.discover.requests.get", side_effect=[miss, shared]) as g:
+        with patch("ppr.dblp_client.requests.get", side_effect=[miss, shared]) as g:
             out = probe(v, 2026)
         assert (out.status, out.count) == ("live", 120)
         assert g.call_args_list[1].kwargs["params"]["h"] == 1000
@@ -334,7 +344,7 @@ class TestDblpProbe:
             "@total": "2",
             "hit": [{"info": {}}, {"info": {"number": "ISSTA"}}],
         }}}
-        with patch("ppr.discover.requests.get", return_value=resp):
+        with patch("ppr.dblp_client.requests.get", return_value=resp):
             out = probe(v, 2026)
         assert out.count == 1
 
@@ -346,7 +356,7 @@ class TestDblpProbe:
         ]})
         resp = _response(200)
         resp.json = lambda: {"result": {"hits": ["not", "a", "dict"]}}
-        with patch("ppr.discover.requests.get", return_value=resp):
+        with patch("ppr.dblp_client.requests.get", return_value=resp):
             out = probe(v, 2026)
         assert out.status == "unreachable"
         assert out.note == "unparseable response"
@@ -458,17 +468,35 @@ class TestDiscoverSweep:
 class TestStaleEmpty:
     def test_flags_empty_past_the_announce_month(self):
         reg = {"cvpr": Venue("cvpr", "CVPR", "cvf", "annual", {"url": "u"}, 2)}
-        out = stale_empty([_pr("cvpr_2026", "empty")], reg, today_month=7)
+        out = stale_empty([_pr("cvpr_2026", "empty")], reg, today_month=7, today_year=2026)
         assert [r.conf_id for r in out] == ["cvpr_2026"]
 
     def test_ignores_empty_before_the_announce_month(self):
         reg = {"wacv": Venue("wacv", "WACV", "cvf", "annual", {"url": "u"}, 10)}
-        assert stale_empty([_pr("wacv_2027", "empty")], reg, today_month=7) == []
+        out = stale_empty([_pr("wacv_2026", "empty")], reg, today_month=7, today_year=2026)
+        assert out == []
 
     def test_ignores_non_empty_statuses(self):
         reg = {"cvpr": Venue("cvpr", "CVPR", "cvf", "annual", {"url": "u"}, 2)}
-        results = [_pr("cvpr_2026", "not-yet"), _pr("cvpr_2027", "live", 2000)]
-        assert stale_empty(results, reg, today_month=12) == []
+        results = [_pr("cvpr_2026", "not-yet"), _pr("cvpr_2026", "live", 2000)]
+        assert stale_empty(results, reg, today_month=12, today_year=2026) == []
+
+    def test_ignores_a_candidate_from_a_future_year(self):
+        """`missing_years` always proposes next year, and a stub page for a
+        conference that has not happened yet is the ordinary pre-publication
+        state -- never evidence of a selector the site outgrew. Comparing only
+        months would flag every next-year candidate from March onward."""
+        reg = {"cvpr": Venue("cvpr", "CVPR", "cvf", "annual", {"url": "u"}, 2)}
+        results = [_pr("cvpr_2027", "empty", year=2027)]
+        assert stale_empty(results, reg, today_month=12, today_year=2026) == []
+
+    def test_still_flags_the_current_year_late_in_it(self):
+        """The guard against next-year candidates must not silence the signal
+        it exists to carry: this year's venue, months past its announce month."""
+        reg = {"cvpr": Venue("cvpr", "CVPR", "cvf", "annual", {"url": "u"}, 2)}
+        results = [_pr("cvpr_2026", "empty", year=2026)]
+        out = stale_empty(results, reg, today_month=12, today_year=2026)
+        assert [r.conf_id for r in out] == ["cvpr_2026"]
 
 
 class TestOutputFormats:
@@ -505,6 +533,42 @@ class TestOutputFormats:
         stale = [_pr("cvpr_2026", "empty")]
         payload = _json.loads(results_to_json([_pr("cvpr_2026", "empty")], stale=stale))
         assert payload["stale_empty"] == ["cvpr_2026"]
+
+
+class TestVenueFilter:
+    def _args(self, venues):
+        import argparse
+
+        return argparse.Namespace(venue=venues, json=False, username=None, password=None)
+
+    def test_unknown_prefix_raises_instead_of_sweeping_nothing(self):
+        """A typo'd --venue used to filter the registry down to {}, probe
+        nothing, and print "no new lists ready to register" -- one character
+        producing the exact false negative the status taxonomy exists to
+        prevent. It must fail loudly instead."""
+        from ppr.cli import cmd_discover
+
+        with patch("ppr.discover.discover") as swept:
+            with pytest.raises(SystemExit) as exc:
+                cmd_discover(self._args(["cvrp"]))
+        assert "cvrp" in str(exc.value)
+        assert swept.call_count == 0
+
+    def test_names_every_unknown_prefix_not_just_the_first(self):
+        from ppr.cli import cmd_discover
+
+        with patch("ppr.discover.discover", return_value=[]):
+            with pytest.raises(SystemExit) as exc:
+                cmd_discover(self._args(["cvrp", "cvpr", "nuerips"]))
+        assert "cvrp" in str(exc.value) and "nuerips" in str(exc.value)
+
+    def test_known_prefix_still_narrows_the_sweep(self):
+        from ppr.cli import cmd_discover
+
+        with patch("ppr.discover.discover", return_value=[]) as swept:
+            cmd_discover(self._args(["cvpr"]))
+        assert swept.call_count == 1
+        assert set(swept.call_args.args[0]) == {"cvpr"}
 
 
 class TestCliWiring:
