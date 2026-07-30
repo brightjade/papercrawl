@@ -33,6 +33,31 @@ remote_bash() {
   ssh "$PPR_REMOTE_HOST" "bash -s -- $*"
 }
 
+cmd_sync() {
+  if [[ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]]; then
+    echo "경고: 로컬에 미커밋 변경이 있습니다 — 커밋해야 원격에 반영됩니다." >&2
+  fi
+
+  echo "==> 로컬 push"
+  # --force 는 쓰지 않는다. non-fast-forward 로 거부되면 set -e 가 여기서 멈추는 것이
+  # 의도된 동작이다 — 사람이 직접 풀어야 한다.
+  git -C "$REPO_ROOT" push
+
+  echo "==> 원격 pull + uv sync"
+  remote_bash "$(printf %q "$PPR_REMOTE_DIR")" <<'REMOTE'
+set -euo pipefail
+cd "$1"
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "원격 워킹트리가 dirty합니다. 정리한 뒤 다시 시도하세요." >&2
+  exit 1
+fi
+git fetch origin
+git pull --ff-only
+uv sync
+git log --oneline -1
+REMOTE
+}
+
 usage() {
   cat <<'EOF'
 사용법: scripts/remote.sh <명령> [인자...]
@@ -54,6 +79,7 @@ main() {
   local cmd="${1:-}"
   if [[ $# -gt 0 ]]; then shift; fi
   case "$cmd" in
+    sync) load_config; cmd_sync "$@" ;;
     -h|--help|help|"") usage ;;
     *) echo "알 수 없는 명령: $cmd" >&2; usage >&2; exit 1 ;;
   esac
