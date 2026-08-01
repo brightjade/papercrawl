@@ -469,6 +469,7 @@ class TestEnrichConference:
         respx.get(MATCH_URL).mock(return_value=httpx.Response(200, json={"data": []}))
         result = await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
         out = {p.title: p for p in read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")}
+        assert result.status == "enriched"
         severed = out["Bi-VLM: Binary Post-Training Quantization"]
         assert severed.match_status == "not_found"
         assert severed.citation_count is None
@@ -508,8 +509,14 @@ class TestEnrichConference:
         )
         respx.get(BULK_URL).mock(return_value=httpx.Response(200, json={"data": []}))
         respx.get(MATCH_URL).mock(return_value=httpx.Response(200, json={"data": []}))
-        await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
+        result = await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
         out = {p.title: p for p in read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")}
+        # Without these, a verified (never-unbound) "Beta Diffusion" would pass
+        # too: apply_enrichment only fills an empty abstract, so a bound
+        # paper's OpenReview abstract survives untouched either way. These
+        # confirm unbind is what ran, not a no-op.
+        assert result.unbound == 1
+        assert out["Beta Diffusion"].match_status == "not_found"
         assert out["Beta Diffusion"].abstract == "Ours, from OpenReview."
 
     @respx.mock
@@ -564,19 +571,39 @@ class TestEnrichConference:
     async def test_null_entry_never_unbinds(self, tmp_path):
         # get_batch fills a whole failed chunk with None. Reading that as a
         # failed verification would sever 500 papers over one HTTP hiccup.
+        #
+        # A one-paper fixture cannot catch a regression here: unbinding its
+        # only paper drops coverage to 0%, check_enrichment_coverage skips the
+        # run, and the untouched fixture file is read back looking exactly
+        # like a paper that was never unbound at all — every assertion below
+        # would still pass. "Companion" keeps coverage at 50% so a wrongly
+        # severed "A" cannot hide behind the guard, and asserting "enriched"
+        # rules out the skip path directly.
         _conf(
             tmp_path,
             "iclr_2026",
-            [_paper(title="A")],
+            [_paper(title="A"), _paper(title="Companion")],
             [_paper(title="A", external_ids={"CorpusId": 1}, citation_count=77,
+                    match_status="matched"),
+             _paper(title="Companion", external_ids={"CorpusId": 2}, citation_count=5,
                     match_status="matched")],
         )
-        respx.post(BATCH_URL).mock(return_value=httpx.Response(200, json=[None]))
+        respx.post(BATCH_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    None,
+                    {"title": "Companion", "citationCount": 5,
+                     "externalIds": {"CorpusId": 2}, "authors": [{"name": "X"}]},
+                ],
+            )
+        )
         result = await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
-        out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
-        assert out[0].citation_count == 77
-        assert out[0].external_ids == {"CorpusId": 1}
-        assert out[0].match_status == "matched"
+        out = {p.title: p for p in read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")}
+        assert result.status == "enriched"
+        assert out["A"].citation_count == 77
+        assert out["A"].external_ids == {"CorpusId": 1}
+        assert out["A"].match_status == "matched"
         assert result.unbound == 0
 
     @respx.mock
@@ -945,11 +972,16 @@ class TestEnrichConference:
             import json as _json
 
             ids = _json.loads(request.content)["ids"]
+            # The refresh leg (CorpusId:1) must echo "Old"'s real title, or
+            # verification rejects it as a stranger and this stops testing a
+            # refresh at all — see test_healthy_refresh_still_writes for the
+            # same mistake.
+            titles = {"CorpusId:1": "Old", "DOI:10.1/new": "New"}
             return httpx.Response(
                 200,
                 json=[
                     {
-                        "title": i,
+                        "title": titles.get(i, i),
                         "citationCount": 5,
                         "externalIds": {"CorpusId": n},
                     }
@@ -964,6 +996,7 @@ class TestEnrichConference:
         assert result.refreshed == 1
         assert result.cold == 1
         assert result.total == 2
+        assert result.unbound == 0
 
 
 class TestEnrichResume:
