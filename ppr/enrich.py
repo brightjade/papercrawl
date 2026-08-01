@@ -11,7 +11,7 @@ from typing import TextIO
 import httpx
 from tqdm import tqdm
 
-from ppr.matching import MATCHED, REJECT, match_verdict, title_key
+from ppr.matching import MATCHED, MATCHED_FUZZY, REJECT, match_verdict, title_key
 from ppr.models import Paper
 from ppr.s2_client import BATCH_CHUNK_SIZE, S2Client
 
@@ -413,20 +413,22 @@ async def _run_batch(
     mode: str,
     crawl_abstracts: dict[str, str] | None = None,
     record: Record = _no_record,
-) -> list[Paper]:
+) -> tuple[list[Paper], int]:
     """Look papers up by ID and merge the results in place.
 
     `mode` is "verify" for the CorpusId refresh, which re-checks that the
     record still describes the paper we crawled, or "set" for the DOI path,
     where the identifier is authoritative and no title check applies.
 
-    Returns the papers whose binding was rejected and cleared. Chunked at the
-    size the API accepts per request, so progress is checkpointed a request at
-    a time; this path is fast enough that finer granularity would buy nothing.
+    Returns (papers whose binding was rejected and cleared, count of papers
+    accepted on fuzzy evidence). Chunked at the size the API accepts per
+    request, so progress is checkpointed a request at a time; this path is
+    fast enough that finer granularity would buy nothing.
     """
     unbound: list[Paper] = []
+    fuzzy = 0
     if not papers:
-        return unbound
+        return unbound, fuzzy
     abstracts = crawl_abstracts or {}
     for start in range(0, len(papers), BATCH_CHUNK_SIZE):
         chunk = papers[start : start + BATCH_CHUNK_SIZE]
@@ -443,6 +445,8 @@ async def _run_batch(
                     unbound.append(paper)
                     continue
                 paper.match_status = verdict
+                if verdict == MATCHED_FUZZY:
+                    fuzzy += 1
             apply_enrichment(paper, entry)
             if mode == "set":
                 paper.match_status = "matched" if entry else "not_found"
@@ -451,7 +455,7 @@ async def _run_batch(
         # once their cold retry finishes, so a crash between the two stages
         # cannot freeze a paper as unbound-but-never-retried.
         record(settled)
-    return unbound
+    return unbound, fuzzy
 
 
 async def _run_title_cold(
@@ -460,10 +464,14 @@ async def _run_title_cold(
     papers: list[Paper],
     conf_id: str,
     record: Record = _no_record,
-) -> None:
-    """Prefetch the venue in bulk, then match the remainder one at a time."""
+) -> int:
+    """Prefetch the venue in bulk, then match the remainder one at a time.
+
+    Returns the count of papers accepted on fuzzy evidence, for the caller to
+    fold into one per-conference log alongside the refresh path's own count.
+    """
     if not papers:
-        return
+        return 0
 
     prefix, _, year_str = conf_id.rpartition("_")
     venue = S2_VENUE_NAMES.get(prefix)
@@ -517,13 +525,7 @@ async def _run_title_cold(
             paper.match_status = verdict
         record([paper])
 
-    fuzzy = sum(1 for p in papers if p.match_status == "matched_fuzzy")
-    if fuzzy:
-        logger.info(
-            "%s: %d papers matched on fuzzy evidence rather than an exact title",
-            conf_id,
-            fuzzy,
-        )
+    return sum(1 for p in papers if p.match_status == MATCHED_FUZZY)
 
 
 async def enrich_conference(
@@ -599,7 +601,7 @@ async def enrich_conference(
     unbound: list[Paper] = []
     with checkpoint:
         async with httpx.AsyncClient(timeout=60.0) as http:
-            unbound = await _run_batch(
+            unbound, refresh_fuzzy = await _run_batch(
                 client, http, refresh, corpus_id_of,
                 mode="verify", crawl_abstracts=crawl_abstracts,
                 record=checkpoint.record,
@@ -613,9 +615,20 @@ async def enrich_conference(
                 client, http, doi_cold, doi_id_of,
                 mode="set", record=checkpoint.record,
             )
-            await _run_title_cold(
+            title_cold_fuzzy = await _run_title_cold(
                 client, http, title_cold, conf_id, record=checkpoint.record
             )
+
+    # One combined line per conference — refresh is where most fuzzy verdicts
+    # actually land, so counting only the title-cold path here would miss the
+    # majority of what the spec wants tracked as a trend.
+    fuzzy_total = refresh_fuzzy + title_cold_fuzzy
+    if fuzzy_total:
+        logger.info(
+            "%s: %d papers matched on fuzzy evidence rather than an exact title",
+            conf_id,
+            fuzzy_total,
+        )
 
     reason = check_enrichment_coverage(raw, enriched)
     if reason:

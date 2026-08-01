@@ -1,4 +1,5 @@
 import json
+import logging
 
 import pytest
 
@@ -482,6 +483,105 @@ class TestEnrichConference:
 
     @respx.mock
     @pytest.mark.asyncio
+    async def test_refresh_accepts_a_drifted_title_on_shared_authors(self, tmp_path):
+        # match_verdict only reaches its author-weighted branch when the title
+        # is not an exact match. Every other refresh fixture in this file uses
+        # an exact title (which short-circuits before authors are consulted)
+        # or a reject that rejects with or without them — so passing `[]`
+        # instead of `paper.authors` at the call site would go unnoticed.
+        # This title drifts just enough that the verdict depends on whether
+        # the real author list reaches match_verdict.
+        ours_title = (
+            "Align Your Trajectory Tangent: Training Better Consistency "
+            "Models via Manifold-Aligned Tangents"
+        )
+        drifted_title = (
+            "Align Your Tangent: Training Better Consistency Models via "
+            "Manifold-Aligned Tangents"
+        )
+        authors = ["Ada Lovelace", "Grace Hopper"]
+        # "Companion" keeps coverage at 50% (same trick as
+        # test_null_entry_never_unbinds) so a wrongly unbound target paper
+        # cannot hide behind check_enrichment_coverage's skip.
+        _conf(
+            tmp_path,
+            "iclr_2026",
+            [_paper(title=ours_title, authors=authors),
+             _paper(title="Companion", authors=["Alan Turing"])],
+            [_paper(title=ours_title, authors=authors,
+                    external_ids={"CorpusId": 1}, citation_count=10,
+                    match_status="matched"),
+             _paper(title="Companion", authors=["Alan Turing"],
+                    external_ids={"CorpusId": 2}, citation_count=5,
+                    match_status="matched")],
+        )
+        respx.post(BATCH_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {"title": drifted_title, "citationCount": 15,
+                     "externalIds": {"CorpusId": 1},
+                     "authors": [{"name": n} for n in authors]},
+                    {"title": "Companion", "citationCount": 5,
+                     "externalIds": {"CorpusId": 2},
+                     "authors": [{"name": "Alan Turing"}]},
+                ],
+            )
+        )
+        # If authors were dropped before reaching match_verdict, the paper
+        # would be rejected and unbound, then retried cold — mock that path
+        # too so the failure is a clean assertion mismatch rather than an
+        # unmocked-request crash.
+        respx.get(BULK_URL).mock(return_value=httpx.Response(200, json={"data": []}))
+        respx.get(MATCH_URL).mock(return_value=httpx.Response(200, json={"data": []}))
+        result = await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
+        out = {p.title: p for p in read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")}
+        assert result.status == "enriched"
+        assert out[ours_title].match_status == "matched_fuzzy"
+        assert out[ours_title].citation_count == 15
+        assert result.unbound == 0
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_refresh_fuzzy_verdicts_are_logged_per_conference(
+        self, tmp_path, caplog
+    ):
+        # The design spec wants matched_fuzzy counted and logged per
+        # conference so a spike is visible as a trend. The plan narrowed that
+        # to the title-cold path, but refresh is where the large majority of
+        # fuzzy verdicts land — a log that counts only title-cold's fuzzy
+        # matches would miss most of what the spec wants tracked.
+        ours_title = (
+            "Align Your Trajectory Tangent: Training Better Consistency "
+            "Models via Manifold-Aligned Tangents"
+        )
+        drifted_title = (
+            "Align Your Tangent: Training Better Consistency Models via "
+            "Manifold-Aligned Tangents"
+        )
+        authors = ["Ada Lovelace", "Grace Hopper"]
+        _conf(
+            tmp_path,
+            "iclr_2026",
+            [_paper(title=ours_title, authors=authors)],
+            [_paper(title=ours_title, authors=authors,
+                    external_ids={"CorpusId": 1}, citation_count=10,
+                    match_status="matched")],
+        )
+        respx.post(BATCH_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json=[{"title": drifted_title, "citationCount": 15,
+                       "externalIds": {"CorpusId": 1},
+                       "authors": [{"name": n} for n in authors]}],
+            )
+        )
+        with caplog.at_level(logging.INFO, logger="ppr.enrich"):
+            await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
+        assert "iclr_2026: 1 papers matched on fuzzy evidence" in caplog.text
+
+    @respx.mock
+    @pytest.mark.asyncio
     async def test_unbind_restores_the_crawl_abstract(self, tmp_path):
         # OpenReview supplies abstracts; S2 only fills the blanks. Clearing
         # outright would blank a legitimate abstract until next month's crawl
@@ -655,8 +755,8 @@ class TestEnrichConference:
     @pytest.mark.asyncio
     async def test_refresh_null_entry_does_not_flip_match_status(self, tmp_path):
         # A batch entry of None on refresh must not be read as "not_found" —
-        # that labelling belongs only to the cold paths, which set
-        # set_match_status=True.
+        # that labelling belongs only to the cold paths, which run with
+        # mode="set".
         _conf(
             tmp_path,
             "iclr_2026",
@@ -1446,6 +1546,24 @@ class TestFormatEnrichSummary:
         assert "Unbound" in out
         assert "Kept" not in out  # the old name counted a bucket that is gone
         assert "1 enriched, 0 skipped, 0 failed, 1 total." in out
+
+    def test_row_renders_each_numeric_column_in_its_own_slot(self):
+        # A header naming "Resumed" and "Unbound" is not proof the row under
+        # it renders those columns from the right fields — e.g. printing
+        # r.resumed twice and never r.unbound would still satisfy the
+        # assertions above. Every numeric column gets a distinct value here,
+        # so only the correct field in the correct slot can match.
+        result = EnrichResult(
+            "iclr_2026", "enriched", "refresh",
+            total=23, refreshed=11, cold=5, resumed=4, unbound=3,
+            reason="a note",
+        )
+        out = format_enrich_summary([result])
+        expected_row = (
+            f"{'iclr_2026':<24} {'enriched':<14} {'refresh':<11} "
+            f"{23:>7} {11:>8} {5:>7} {4:>8} {3:>8}  a note"
+        )
+        assert expected_row in out
 
 
 def _enrich_args(**kw) -> argparse.Namespace:
