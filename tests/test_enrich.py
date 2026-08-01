@@ -1436,6 +1436,18 @@ class TestFormatSummary:
         assert "kaboom" in out
 
 
+class TestFormatEnrichSummary:
+    def test_reports_resumed_and_unbound(self):
+        out = format_enrich_summary([
+            EnrichResult("iclr_2026", "enriched", "refresh",
+                         total=10, refreshed=7, cold=2, resumed=1, unbound=2),
+        ])
+        assert "Resumed" in out
+        assert "Unbound" in out
+        assert "Kept" not in out  # the old name counted a bucket that is gone
+        assert "1 enriched, 0 skipped, 0 failed, 1 total." in out
+
+
 def _enrich_args(**kw) -> argparse.Namespace:
     base = dict(
         conferences=["a_2026"], all=False, full=False,

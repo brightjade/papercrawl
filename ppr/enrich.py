@@ -517,6 +517,14 @@ async def _run_title_cold(
             paper.match_status = verdict
         record([paper])
 
+    fuzzy = sum(1 for p in papers if p.match_status == "matched_fuzzy")
+    if fuzzy:
+        logger.info(
+            "%s: %d papers matched on fuzzy evidence rather than an exact title",
+            conf_id,
+            fuzzy,
+        )
+
 
 async def enrich_conference(
     conf_id: str,
@@ -670,17 +678,20 @@ def format_enrich_summary(results: list[EnrichResult]) -> str:
     Skips are printed, not merely logged, so a silently skipped conference can
     never be mistaken for a successful refresh. Failures are counted apart from
     skips: a skip is an expected outcome, a failure needs someone to look.
+    Unbound counts bindings severed by verification, so a spike is visible in
+    the monthly run rather than only by scripting the data.
     """
     lines = [
         "",
         f"{'Conference':<24} {'Status':<14} {'Path':<11} "
-        f"{'Total':>7} {'Refresh':>8} {'Cold':>7} {'Resumed':>7}  Note",
-        "-" * 100,
+        f"{'Total':>7} {'Refresh':>8} {'Cold':>7} {'Resumed':>8} {'Unbound':>8}  Note",
+        "-" * 112,
     ]
     for r in results:
         lines.append(
             f"{r.conf_id:<24} {r.status:<14} {r.path:<11} "
-            f"{r.total:>7} {r.refreshed:>8} {r.cold:>7} {r.resumed:>7}  {r.reason}"
+            f"{r.total:>7} {r.refreshed:>8} {r.cold:>7} {r.resumed:>8} "
+            f"{r.unbound:>8}  {r.reason}"
         )
     skipped = sum(1 for r in results if r.status == "skipped")
     enriched = sum(1 for r in results if r.status == "enriched")
