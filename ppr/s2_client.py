@@ -25,6 +25,10 @@ ENRICHMENT_FIELDS = (
     "referenceCount,tldr,publicationDate,fieldsOfStudy,openAccessPdf,externalIds"
 )
 
+# /paper/search/bulk rejects `tldr` outright (400 Unrecognized or unsupported
+# fields), unlike /paper/batch and /paper/search/match which both accept it.
+BULK_FIELDS = ",".join(f for f in ENRICHMENT_FIELDS.split(",") if f != "tldr")
+
 MAX_RETRIES = 8
 
 
@@ -150,7 +154,7 @@ class S2Client:
         client: httpx.AsyncClient,
         venue: str,
         year: int,
-        fields: str = ENRICHMENT_FIELDS,
+        fields: str = BULK_FIELDS,
     ) -> list[dict]:
         """Fetch every paper Semantic Scholar indexes for a venue and year.
 

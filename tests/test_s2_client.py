@@ -264,6 +264,23 @@ class TestBulkSearch:
 
     @respx.mock
     @pytest.mark.asyncio
+    async def test_default_fields_omit_tldr(self):
+        # /paper/search/bulk answers `tldr` with a 400 (Unrecognized or
+        # unsupported fields), unlike /paper/batch and /paper/search/match
+        # which both accept it. Falling back to ENRICHMENT_FIELDS here makes
+        # every bulk call fail and silently returns [], with prefetch quietly
+        # falling through to per-title matching for the whole venue.
+        route = respx.get(BULK_URL).mock(
+            return_value=httpx.Response(200, json={"total": 0, "data": []})
+        )
+        async with httpx.AsyncClient() as client:
+            await _client().bulk_search(client, "CVPR", 2026)
+        fields = route.calls[0].request.url.params["fields"].split(",")
+        assert "tldr" not in fields
+        assert "title" in fields  # still asking for the rest of the fields
+
+    @respx.mock
+    @pytest.mark.asyncio
     async def test_empty_page_stops_pagination(self):
         """A token that keeps returning nothing must not loop forever."""
         route = respx.get(BULK_URL).mock(
