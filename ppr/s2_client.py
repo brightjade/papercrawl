@@ -21,8 +21,8 @@ BULK_URL = f"{API_BASE}/paper/search/bulk"
 BATCH_CHUNK_SIZE = 500
 
 ENRICHMENT_FIELDS = (
-    "title,citationCount,abstract,influentialCitationCount,referenceCount,"
-    "tldr,publicationDate,fieldsOfStudy,openAccessPdf,externalIds"
+    "title,authors,citationCount,abstract,influentialCitationCount,"
+    "referenceCount,tldr,publicationDate,fieldsOfStudy,openAccessPdf,externalIds"
 )
 
 MAX_RETRIES = 8

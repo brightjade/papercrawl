@@ -193,3 +193,10 @@ class TestMatchVerdict:
         # "" is a substring of everything; the containment rule must not fire.
         assert match_verdict("A Real Paper", ["Ada Lovelace"],
                              _entry("", ["Ada Lovelace"])) == REJECT
+
+
+def test_enrichment_fields_request_authors():
+    # match_verdict cannot corroborate anything without them.
+    from ppr.s2_client import ENRICHMENT_FIELDS
+
+    assert "authors" in ENRICHMENT_FIELDS.split(",")

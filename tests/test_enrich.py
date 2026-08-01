@@ -7,7 +7,6 @@ from ppr.enrich import (
     carry_over,
     check_enrichment_coverage,
     check_guards,
-    match_status_for,
     normalize_title,
     read_papers,
     write_enriched,
@@ -105,17 +104,6 @@ class TestApplyEnrichment:
         assert p.fields_of_study == []
         assert p.external_ids == {}
         assert p.publication_date == ""
-
-
-class TestMatchStatusFor:
-    def test_matched_ignores_case_and_spacing(self):
-        assert match_status_for("A  Paper", {"title": "a paper"}) == "matched"
-
-    def test_mismatch(self):
-        assert match_status_for("A Paper", {"title": "Other"}) == "mismatch"
-
-    def test_not_found(self):
-        assert match_status_for("A Paper", None) == "not_found"
 
 
 class TestCarryOver:
@@ -567,6 +555,72 @@ class TestEnrichConference:
         )
         await enrich_conference("notavenue_2026", S2Client(min_interval=0.0), tmp_path)
         assert bulk.call_count == 0
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_bulk_prefetch_matches_through_punctuation(self, tmp_path):
+        # Keyed by normalize_title this missed and fell through to the ~0.3
+        # req/s per-title path. title_key keeps it in the cheap bulk path.
+        _conf(tmp_path, "iclr_2026", [_paper(title="A Study: Part One")])
+        respx.get(BULK_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={"data": [{"title": "A Study : Part One.", "citationCount": 7,
+                                "externalIds": {"CorpusId": 5}}]},
+            )
+        )
+        match = respx.get(MATCH_URL).mock(return_value=httpx.Response(200, json={"data": []}))
+        await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
+        assert match.call_count == 0
+        out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
+        assert out[0].match_status == "matched"
+        assert out[0].citation_count == 7
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_title_cold_rejects_a_wrong_neighbour(self, tmp_path):
+        # /search/match returns the nearest neighbour, not nothing, for a paper
+        # S2 has not indexed. Binding to it is how wrong records are born.
+        _conf(tmp_path, "iclr_2026", [_paper(title="Beta Diffusion", authors=["Ada Lovelace"])])
+        respx.get(BULK_URL).mock(return_value=httpx.Response(200, json={"data": []}))
+        respx.get(MATCH_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={"data": [{
+                    "title": "Floorplan Generation with Graph Beta Diffusion",
+                    "citationCount": 300,
+                    "externalIds": {"CorpusId": 999},
+                    "authors": [{"name": "Alan Turing"}],
+                }]},
+            )
+        )
+        await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
+        out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
+        assert out[0].match_status == "not_found"
+        assert out[0].citation_count is None
+        assert out[0].external_ids == {}
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_title_cold_accepts_a_fuzzy_match(self, tmp_path):
+        _conf(tmp_path, "iclr_2026",
+              [_paper(title="A Survey of Agents", authors=["Ada Lovelace"])])
+        respx.get(BULK_URL).mock(return_value=httpx.Response(200, json={"data": []}))
+        respx.get(MATCH_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={"data": [{
+                    "title": "A Survey of Agents: How Far Are We?",
+                    "citationCount": 12,
+                    "externalIds": {"CorpusId": 4},
+                    "authors": [{"name": "Ada Lovelace"}],
+                }]},
+            )
+        )
+        await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
+        out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
+        assert out[0].match_status == "matched_fuzzy"
+        assert out[0].citation_count == 12
 
     @pytest.mark.asyncio
     async def test_empty_raw_with_enriched_is_skipped(self, tmp_path):

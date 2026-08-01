@@ -11,6 +11,7 @@ from typing import TextIO
 import httpx
 from tqdm import tqdm
 
+from ppr.matching import MATCHED, REJECT, match_verdict, title_key
 from ppr.models import Paper
 from ppr.s2_client import BATCH_CHUNK_SIZE, S2Client
 
@@ -52,18 +53,6 @@ def apply_enrichment(paper: Paper, entry: dict | None) -> Paper:
         paper.abstract = entry["abstract"]
 
     return paper
-
-
-def match_status_for(query_title: str, entry: dict | None) -> str:
-    """Classify a title-based lookup result."""
-    if entry is None:
-        return "not_found"
-    if normalize_title(query_title) == normalize_title(entry.get("title", "")):
-        return "matched"
-    logger.warning(
-        "Title mismatch for '%s' — got '%s'", query_title, entry.get("title", "")
-    )
-    return "mismatch"
 
 
 def carry_over(raw: Paper, prior: Paper) -> Paper:
@@ -434,7 +423,7 @@ async def _run_title_cold(
         for entry in await client.bulk_search(http, venue, int(year_str)):
             title = entry.get("title")
             if title:
-                index.setdefault(normalize_title(title), entry)
+                index.setdefault(title_key(title), entry)
         logger.info(
             "Bulk prefetch for %s returned %d indexed papers", conf_id, len(index)
         )
@@ -442,12 +431,14 @@ async def _run_title_cold(
     misses: list[Paper] = []
     prefetched: list[Paper] = []
     for paper in papers:
-        entry = index.get(normalize_title(paper.title))
+        entry = index.get(title_key(paper.title))
         if entry is None:
             misses.append(paper)
             continue
         apply_enrichment(paper, entry)
-        paper.match_status = "matched"
+        # An index hit is an exact title_key equality by construction, so it
+        # is trusted directly — no need to consult match_verdict.
+        paper.match_status = MATCHED
         prefetched.append(paper)
     record(prefetched)
 
@@ -461,8 +452,20 @@ async def _run_title_cold(
     # more per paper, so per-paper granularity is what makes resume worth having.
     for paper in tqdm(misses, desc=f"Matching {conf_id}", unit="paper"):
         entry = await client.match_title(http, paper.title)
-        apply_enrichment(paper, entry)
-        paper.match_status = match_status_for(paper.title, entry)
+        # /search/match answers an unindexed paper with its nearest fuzzy
+        # neighbour rather than with nothing, so an unchecked data[0] is how a
+        # paper ends up wearing a stranger's citations. Only a justified match
+        # is allowed to bind.
+        verdict = (
+            match_verdict(paper.title, paper.authors, entry)
+            if entry is not None
+            else REJECT
+        )
+        if verdict == REJECT:
+            paper.match_status = "not_found"
+        else:
+            apply_enrichment(paper, entry)
+            paper.match_status = verdict
         record([paper])
 
 
