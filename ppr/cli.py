@@ -93,10 +93,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Discard existing enrichment and re-run the cold path.",
     )
     enrich_parser.add_argument(
-        "--retry-unmatched", action="store_true",
-        help="Also retry papers that no previous run could match.",
-    )
-    enrich_parser.add_argument(
         "--api-key", default=os.environ.get("SEMANTIC_SCHOLAR_API_KEY", ""),
         help="Semantic Scholar API key (optional, increases rate limits).",
     )
@@ -195,7 +191,6 @@ def cmd_enrich(args: argparse.Namespace) -> None:
             client,
             DATA_DIR,
             full=args.full,
-            retry_unmatched=args.retry_unmatched,
         )
     )
     print(format_enrich_summary(results))

@@ -323,7 +323,7 @@ class EnrichResult:
     total: int = 0
     refreshed: int = 0
     cold: int = 0
-    kept: int = 0
+    resumed: int = 0
     reason: str = ""
 
 
@@ -346,39 +346,33 @@ def route_papers(
     prior_by_title: dict[str, Paper],
     *,
     full: bool,
-    retry_unmatched: bool,
-) -> tuple[list[Paper], list[Paper], list[Paper], list[Paper]]:
-    """Split raw papers into (refresh, doi_cold, title_cold, kept).
+) -> tuple[list[Paper], list[Paper], list[Paper]]:
+    """Split raw papers into (refresh, doi_cold, title_cold).
 
     Papers are mutated in place: each one that has prior enrichment receives it
     via carry_over before being routed, so a lookup that comes back empty falls
     back to the previous values rather than to nothing.
+
+    A paper whose prior enrichment carries no CorpusId is always routed cold.
+    Semantic Scholar indexes a conference weeks to months after we crawl it, so
+    "not found" is a statement about a moment, not about the paper; the monthly
+    run is what turns it back into a question.
     """
     refresh: list[Paper] = []
     doi_cold: list[Paper] = []
     title_cold: list[Paper] = []
-    kept: list[Paper] = []
 
     for paper in raw:
         prior = prior_by_title.get(normalize_title(paper.title))
         if prior is not None and not full:
             carry_over(paper, prior)
 
-        def _cold(p: Paper) -> None:
-            (doi_cold if doi_id_of(p) else title_cold).append(p)
-
-        if full:
-            _cold(paper)
-        elif prior is None:
-            _cold(paper)
-        elif corpus_id_of(prior):
+        if not full and prior is not None and corpus_id_of(prior):
             refresh.append(paper)
-        elif retry_unmatched:
-            _cold(paper)
         else:
-            kept.append(paper)
+            (doi_cold if doi_id_of(paper) else title_cold).append(paper)
 
-    return refresh, doi_cold, title_cold, kept
+    return refresh, doi_cold, title_cold
 
 
 def _dominant_path(refresh: list, doi_cold: list, title_cold: list) -> str:
@@ -478,7 +472,6 @@ async def enrich_conference(
     data_dir: Path,
     *,
     full: bool = False,
-    retry_unmatched: bool = False,
 ) -> EnrichResult:
     """Enrich a single conference, choosing the cheapest workable path.
 
@@ -516,14 +509,6 @@ async def enrich_conference(
     # checkpoint contributes enrichment to papers still in the raw file and
     # nothing else, so one it holds that the latest crawl dropped stays dropped.
     done = checkpoint.restore()
-    if retry_unmatched:
-        # --retry-unmatched exists to give previously unmatchable papers another
-        # chance. A checkpoint entry recording that very failure would absorb
-        # the retry — zero lookups, and the paper reported under Kept — which is
-        # the trap --full avoids by discarding the checkpoint outright. Dropping
-        # only the unmatched entries reopens them while the matched ones, which
-        # cost just as much to obtain, stay resumed.
-        done = {k: p for k, p in done.items() if p.match_status == "matched"}
     todo: list[Paper] = []
     for paper in raw:
         finished = done.get(normalize_title(paper.title))
@@ -542,9 +527,7 @@ async def enrich_conference(
         )
 
     prior_by_title = {normalize_title(p.title): p for p in enriched}
-    refresh, doi_cold, title_cold, kept = route_papers(
-        todo, prior_by_title, full=full, retry_unmatched=retry_unmatched
-    )
+    refresh, doi_cold, title_cold = route_papers(todo, prior_by_title, full=full)
 
     with checkpoint:
         async with httpx.AsyncClient(timeout=60.0) as http:
@@ -580,9 +563,7 @@ async def enrich_conference(
         total=len(raw),
         refreshed=len(refresh),
         cold=len(doi_cold) + len(title_cold),
-        # Papers restored from the checkpoint needed no lookup this run, which
-        # is what this column counts; folding them in keeps total = the sum.
-        kept=len(kept) + resumed,
+        resumed=resumed,
     )
 
 
@@ -592,7 +573,6 @@ async def enrich_all(
     data_dir: Path,
     *,
     full: bool = False,
-    retry_unmatched: bool = False,
 ) -> list[EnrichResult]:
     """Enrich each conference in turn. One failure never stops the rest."""
     results = []
@@ -605,7 +585,6 @@ async def enrich_all(
                     client,
                     data_dir,
                     full=full,
-                    retry_unmatched=retry_unmatched,
                 )
             )
         except Exception as exc:  # keep going; the summary reports the failure
@@ -626,13 +605,13 @@ def format_enrich_summary(results: list[EnrichResult]) -> str:
     lines = [
         "",
         f"{'Conference':<24} {'Status':<14} {'Path':<11} "
-        f"{'Total':>7} {'Refresh':>8} {'Cold':>7} {'Kept':>6}  Note",
+        f"{'Total':>7} {'Refresh':>8} {'Cold':>7} {'Resumed':>7}  Note",
         "-" * 100,
     ]
     for r in results:
         lines.append(
             f"{r.conf_id:<24} {r.status:<14} {r.path:<11} "
-            f"{r.total:>7} {r.refreshed:>8} {r.cold:>7} {r.kept:>6}  {r.reason}"
+            f"{r.total:>7} {r.refreshed:>8} {r.cold:>7} {r.resumed:>7}  {r.reason}"
         )
     skipped = sum(1 for r in results if r.status == "skipped")
     enriched = sum(1 for r in results if r.status == "enriched")

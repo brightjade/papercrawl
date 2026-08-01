@@ -284,6 +284,7 @@ import respx
 from ppr.enrich import (
     EnrichResult,
     S2_VENUE_NAMES,
+    checkpoint_path,
     corpus_id_of,
     doi_id_of,
     enrich_all,
@@ -324,73 +325,53 @@ class TestRoutePapers:
     def test_known_corpus_id_goes_to_refresh(self):
         raw = [_paper(title="A")]
         prior = {"a": _paper(title="A", external_ids={"CorpusId": 1}, citation_count=5)}
-        refresh, doi, title, kept = route_papers(
-            raw, prior, full=False, retry_unmatched=False
-        )
+        refresh, doi, title = route_papers(raw, prior, full=False)
         assert [p.title for p in refresh] == ["A"]
-        assert (doi, title, kept) == ([], [], [])
+        assert (doi, title) == ([], [])
         assert raw[0].citation_count == 5  # carried over
 
     def test_new_paper_goes_cold(self):
         raw = [_paper(title="New", link="https://openreview.net/pdf?id=z")]
-        refresh, doi, title, kept = route_papers(
-            raw, {}, full=False, retry_unmatched=False
-        )
+        refresh, doi, title = route_papers(raw, {}, full=False)
         assert [p.title for p in title] == ["New"]
-        assert (refresh, doi, kept) == ([], [], [])
+        assert (refresh, doi) == ([], [])
 
     def test_new_paper_with_doi_goes_id_cold(self):
         raw = [_paper(title="New", link="https://doi.org/10.1/x")]
-        refresh, doi, title, kept = route_papers(
-            raw, {}, full=False, retry_unmatched=False
-        )
+        refresh, doi, title = route_papers(raw, {}, full=False)
         assert [p.title for p in doi] == ["New"]
         assert title == []
 
-    def test_previously_not_found_is_kept_by_default(self):
-        raw = [_paper(title="A")]
-        prior = {"a": _paper(title="A", match_status="not_found")}
-        refresh, doi, title, kept = route_papers(
-            raw, prior, full=False, retry_unmatched=False
-        )
-        assert [p.title for p in kept] == ["A"]
-
-    def test_retry_unmatched_routes_them_cold(self):
+    def test_previously_not_found_is_retried_by_default(self):
+        # The whole point of the change: a paper Semantic Scholar could not
+        # find last month is asked about again this month, with no flag.
         raw = [_paper(title="A", link="https://openreview.net/pdf?id=z")]
         prior = {"a": _paper(title="A", match_status="not_found")}
-        refresh, doi, title, kept = route_papers(
-            raw, prior, full=False, retry_unmatched=True
-        )
+        refresh, doi, title = route_papers(raw, prior, full=False)
         assert [p.title for p in title] == ["A"]
-        assert kept == []
+        assert refresh == []
+
+    def test_retry_does_not_override_known_corpus_id(self):
+        # A known CorpusId means the paper is bound; it belongs on the cheap
+        # refresh path, where the binding also gets re-verified.
+        raw = [_paper(title="A", link="https://doi.org/10.1/x")]
+        prior = {"a": _paper(title="A", external_ids={"CorpusId": 1})}
+        refresh, doi, title = route_papers(raw, prior, full=False)
+        assert [p.title for p in refresh] == ["A"]
+        assert (doi, title) == ([], [])
 
     def test_full_bypasses_refresh(self):
         raw = [_paper(title="A", link="https://doi.org/10.1/x")]
         prior = {"a": _paper(title="A", external_ids={"CorpusId": 1})}
-        refresh, doi, title, kept = route_papers(
-            raw, prior, full=True, retry_unmatched=False
-        )
+        refresh, doi, title = route_papers(raw, prior, full=True)
         assert refresh == []
         assert [p.title for p in doi] == ["A"]
 
     def test_full_does_not_carry_over_prior(self):
         raw = [_paper(title="A")]
         prior = {"a": _paper(title="A", citation_count=999)}
-        route_papers(raw, prior, full=True, retry_unmatched=False)
+        route_papers(raw, prior, full=True)
         assert raw[0].citation_count is None
-
-    def test_retry_unmatched_does_not_override_known_corpus_id(self):
-        # A known CorpusId means the paper is already matched — retry_unmatched
-        # is for papers that were previously *unmatchable*, so it must not pull
-        # an already-matched paper off the (cheap) refresh path onto the
-        # (expensive) cold path.
-        raw = [_paper(title="A", link="https://doi.org/10.1/x")]
-        prior = {"a": _paper(title="A", external_ids={"CorpusId": 1})}
-        refresh, doi, title, kept = route_papers(
-            raw, prior, full=False, retry_unmatched=True
-        )
-        assert [p.title for p in refresh] == ["A"]
-        assert (doi, title, kept) == ([], [], [])
 
 
 class TestEnrichConference:
@@ -935,40 +916,22 @@ class TestEnrichResume:
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_retry_unmatched_reopens_checkpointed_misses(self, tmp_path):
-        """A checkpointed miss must not silently absorb --retry-unmatched.
-
-        Same trap --full avoids by discarding the checkpoint: the flag would do
-        zero lookups and report the paper under Kept, with nothing to show the
-        user the retry never happened.
-        """
-        _conf(tmp_path, "icml_2026", [_paper(title="Hit"), _paper(title="Miss")])
-        _write_jsonl(
-            tmp_path / "icml_2026" / ".papers_enriched.tmp.jsonl",
-            [
-                _paper(title="Hit", citation_count=5, match_status="matched"),
-                _paper(title="Miss", match_status="not_found"),
-            ],
-        )
-        respx.get(BULK_URL).mock(
-            return_value=httpx.Response(200, json={"total": 0, "data": []})
+    async def test_checkpointed_not_found_is_honoured_on_resume(self, tmp_path):
+        # Deliberate, and it reads like a bug without this note: retry happens
+        # BETWEEN runs, never within one. A six-hour run killed at hour five
+        # must not re-ask about the papers it just failed to find — a paper
+        # absent from Semantic Scholar ten minutes ago is still absent now.
+        conf = tmp_path / "iclr_2026"
+        _conf(tmp_path, "iclr_2026", [_paper(title="A")])
+        checkpoint_path(conf).write_text(
+            _paper(title="A", match_status="not_found").to_json() + "\n"
         )
         route = respx.get(MATCH_URL).mock(
-            return_value=httpx.Response(
-                200, json={"data": [{"title": "Miss", "citationCount": 3}]}
-            )
+            return_value=httpx.Response(200, json={"data": [{"title": "A", "citationCount": 9}]})
         )
-        await enrich_conference(
-            "icml_2026", S2Client(min_interval=0.0), tmp_path, retry_unmatched=True
-        )
-
-        assert route.call_count == 1, "the matched paper must stay resumed"
-        assert route.calls[0].request.url.params["query"] == "Miss"
-        out = {p.title: p for p in read_papers(
-            tmp_path / "icml_2026" / "papers_enriched.jsonl"
-        )}
-        assert out["Hit"].citation_count == 5
-        assert out["Miss"].citation_count == 3
+        result = await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
+        assert route.call_count == 0
+        assert result.resumed == 1
 
     @respx.mock
     @pytest.mark.asyncio
@@ -1097,9 +1060,7 @@ class TestEnrichAll:
     async def test_one_failure_does_not_stop_the_rest(self, tmp_path, monkeypatch):
         calls = []
 
-        async def fake_enrich_conference(
-            conf_id, client, data_dir, *, full=False, retry_unmatched=False
-        ):
+        async def fake_enrich_conference(conf_id, client, data_dir, *, full=False):
             calls.append(conf_id)
             if conf_id == "boom_2026":
                 raise ValueError("kaboom")
@@ -1151,17 +1112,19 @@ class TestCliWiring:
         assert args.conferences == ["iclr_2026"]
         assert args.all is False
 
-    def test_enrich_exposes_full_and_retry_unmatched(self):
-        args = build_parser().parse_args(
-            ["enrich", "--all", "--full", "--retry-unmatched"]
-        )
+    def test_enrich_exposes_full(self):
+        args = build_parser().parse_args(["enrich", "--all", "--full"])
         assert args.full is True
-        assert args.retry_unmatched is True
 
-    def test_full_and_retry_unmatched_default_to_false(self):
-        args = build_parser().parse_args(["enrich", "iclr_2026"])
+    def test_full_defaults_to_false(self):
+        args = build_parser().parse_args(["enrich", "--all"])
         assert args.full is False
-        assert args.retry_unmatched is False
+
+    def test_retry_unmatched_flag_is_gone(self):
+        # Retry is the default now; the flag would be a no-op that reads as a
+        # switch. Anyone who scripted it should get an error, not silence.
+        with pytest.raises(SystemExit):
+            build_parser().parse_args(["enrich", "--all", "--retry-unmatched"])
 
 
 class TestFormatSummary:
@@ -1199,7 +1162,7 @@ class TestFormatSummary:
 
 def _enrich_args(**kw) -> argparse.Namespace:
     base = dict(
-        conferences=["a_2026"], all=False, full=False, retry_unmatched=False,
+        conferences=["a_2026"], all=False, full=False,
         api_key="",
     )
     base.update(kw)
