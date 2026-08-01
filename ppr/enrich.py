@@ -585,6 +585,10 @@ async def enrich_conference(
     prior_by_title = {normalize_title(p.title): p for p in enriched}
     refresh, doi_cold, title_cold = route_papers(todo, prior_by_title, full=full)
 
+    # Assigned before the block runs: it is always set inside today, but a
+    # future early return in here must still report zero, not raise
+    # UnboundLocalError on the read below.
+    unbound: list[Paper] = []
     with checkpoint:
         async with httpx.AsyncClient(timeout=60.0) as http:
             unbound = await _run_batch(
@@ -592,6 +596,11 @@ async def enrich_conference(
                 mode="verify", crawl_abstracts=crawl_abstracts,
                 record=checkpoint.record,
             )
+            # Routed exactly like any unmatched paper, because that is what
+            # they now are. A DOI-bearing paper goes back through the DOI path,
+            # where the identifier is authoritative.
+            for paper in unbound:
+                (doi_cold if doi_id_of(paper) else title_cold).append(paper)
             await _run_batch(
                 client, http, doi_cold, doi_id_of,
                 mode="set", record=checkpoint.record,
@@ -618,7 +627,9 @@ async def enrich_conference(
         status="enriched",
         path=_dominant_path(refresh, doi_cold, title_cold),
         total=len(raw),
-        refreshed=len(refresh),
+        # Unbound papers were refreshed and then re-run cold. Counting them
+        # only under Cold keeps total = Refresh + Cold + Resumed.
+        refreshed=len(refresh) - len(unbound),
         cold=len(doi_cold) + len(title_cold),
         resumed=resumed,
         unbound=len(unbound),

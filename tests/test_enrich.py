@@ -521,6 +521,51 @@ class TestEnrichConference:
 
     @respx.mock
     @pytest.mark.asyncio
+    async def test_unbound_paper_is_retried_in_the_same_run(self, tmp_path):
+        # Most will draw the same wrong neighbour and be rejected again — a
+        # handful of wasted requests. But a paper S2 has since indexed properly
+        # recovers now instead of waiting a month.
+        _conf(
+            tmp_path,
+            "iclr_2026",
+            [_paper(title="Beta Diffusion", authors=["Ada Lovelace"])],
+            [_paper(title="Beta Diffusion", authors=["Ada Lovelace"],
+                    external_ids={"CorpusId": 1}, citation_count=90, match_status="mismatch")],
+        )
+        respx.post(BATCH_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json=[{"title": "Floorplan Generation with Graph Beta Diffusion",
+                       "citationCount": 90, "externalIds": {"CorpusId": 1},
+                       "authors": [{"name": "Alan Turing"}]}],
+            )
+        )
+        respx.get(BULK_URL).mock(return_value=httpx.Response(200, json={"data": []}))
+        respx.get(MATCH_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={"data": [{"title": "Beta Diffusion", "citationCount": 3,
+                                "externalIds": {"CorpusId": 42},
+                                "authors": [{"name": "Ada Lovelace"}]}]},
+            )
+        )
+        result = await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
+        out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
+        # Guards against the plan's recurring trap: a coverage-guard skip
+        # leaves papers_enriched.jsonl untouched and defaults `unbound` to 0,
+        # so a fixture whose only paper does not rebind would pass every
+        # assertion below without the cold retry ever running. This one
+        # rebinds to a new CorpusId, keeping coverage at 1/1 and clearing the
+        # guard — but assert the status directly rather than trust that.
+        assert result.status == "enriched"
+        assert out[0].match_status == "matched"
+        assert out[0].external_ids == {"CorpusId": 42}
+        assert out[0].citation_count == 3
+        assert result.unbound == 1
+        assert result.total == result.refreshed + result.cold + result.resumed
+
+    @respx.mock
+    @pytest.mark.asyncio
     async def test_unbound_paper_is_not_checkpointed_by_refresh(self, tmp_path):
         # If refresh checkpointed the severed paper, a crash before the cold
         # stage would leave the next run restoring it as finished — frozen
