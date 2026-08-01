@@ -116,7 +116,7 @@ date +%Y-%m-%d > data/citation_updated.txt
 ./build.sh
 ```
 
-Read the `ppr enrich --all` summary, do not just check its exit code: a conference skipped by a data-loss guard exits 0 by design. Any `skipped` or `failed` row must be reported before continuing.
+Read the `ppr enrich --all` summary, do not just check its exit code: a conference skipped by a data-loss guard exits 0 by design. Any `skipped` or `failed` row must be reported before continuing. Report the `Unbound` column too — it counts bindings that verification severed. A handful per conference is the system working; a conference unbinding a large share of its papers means the venue's Semantic Scholar records moved and needs a look.
 
 Then invoke the `release-data` skill, and only afterwards `git push`.
 

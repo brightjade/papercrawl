@@ -72,6 +72,9 @@ ppr enrich iclr_2025
 ppr enrich iclr_2025 neurips_2025 icml_2025
 ppr enrich --all                      # refresh every conference under data/
 
+# Every run also re-attempts papers no earlier run could match, and re-checks
+# the papers it already matched against the record they are bound to.
+
 # Validate paper counts against DBLP
 ppr validate iclr_2025
 ppr validate iclr_2025 neurips_2025 --tolerance 0.15
