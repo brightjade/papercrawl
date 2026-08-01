@@ -55,6 +55,31 @@ def apply_enrichment(paper: Paper, entry: dict | None) -> Paper:
     return paper
 
 
+def unbind(paper: Paper, crawl_abstract: str) -> Paper:
+    """Sever a binding that failed verification, in place.
+
+    Everything Semantic Scholar contributed goes, because all of it described
+    a different paper. `abstract` is restored from the crawl rather than
+    cleared: apply_enrichment only ever fills an empty abstract, so an
+    OpenReview one may be sitting there, and an enriched record does not say
+    which source it came from.
+
+    The paper is left looking exactly like one that was never matched, which
+    is what puts it back in the retry queue.
+    """
+    paper.citation_count = None
+    paper.influential_citation_count = None
+    paper.reference_count = None
+    paper.tldr = ""
+    paper.publication_date = ""
+    paper.fields_of_study = []
+    paper.open_access_pdf = ""
+    paper.external_ids = {}
+    paper.abstract = crawl_abstract
+    paper.match_status = "not_found"
+    return paper
+
+
 def carry_over(raw: Paper, prior: Paper) -> Paper:
     """Copy prior enrichment onto a freshly-crawled paper, in place.
 
@@ -313,6 +338,7 @@ class EnrichResult:
     refreshed: int = 0
     cold: int = 0
     resumed: int = 0
+    unbound: int = 0
     reason: str = ""
 
 
@@ -384,25 +410,48 @@ async def _run_batch(
     papers: list[Paper],
     id_of,
     *,
-    set_match_status: bool,
+    mode: str,
+    crawl_abstracts: dict[str, str] | None = None,
     record: Record = _no_record,
-) -> None:
+) -> list[Paper]:
     """Look papers up by ID and merge the results in place.
 
-    Chunked at the same size the API accepts per request, so progress is
-    checkpointed a request at a time. This path is fast enough that finer
-    granularity would buy nothing.
+    `mode` is "verify" for the CorpusId refresh, which re-checks that the
+    record still describes the paper we crawled, or "set" for the DOI path,
+    where the identifier is authoritative and no title check applies.
+
+    Returns the papers whose binding was rejected and cleared. Chunked at the
+    size the API accepts per request, so progress is checkpointed a request at
+    a time; this path is fast enough that finer granularity would buy nothing.
     """
+    unbound: list[Paper] = []
     if not papers:
-        return
+        return unbound
+    abstracts = crawl_abstracts or {}
     for start in range(0, len(papers), BATCH_CHUNK_SIZE):
         chunk = papers[start : start + BATCH_CHUNK_SIZE]
         entries = await client.get_batch(http, [id_of(p) for p in chunk])
+        settled: list[Paper] = []
         for paper, entry in zip(chunk, entries):
+            # A None entry means the API had nothing to say — never that
+            # verification failed. get_batch reports a failed chunk as 500
+            # Nones, so unbinding here would sever them all over one hiccup.
+            if mode == "verify" and entry is not None:
+                verdict = match_verdict(paper.title, paper.authors, entry)
+                if verdict == REJECT:
+                    unbind(paper, abstracts.get(normalize_title(paper.title), ""))
+                    unbound.append(paper)
+                    continue
+                paper.match_status = verdict
             apply_enrichment(paper, entry)
-            if set_match_status:
+            if mode == "set":
                 paper.match_status = "matched" if entry else "not_found"
-        record(chunk)
+            settled.append(paper)
+        # Unbound papers are deliberately left out: they are checkpointed only
+        # once their cold retry finishes, so a crash between the two stages
+        # cannot freeze a paper as unbound-but-never-retried.
+        record(settled)
+    return unbound
 
 
 async def _run_title_cold(
@@ -492,6 +541,10 @@ async def enrich_conference(
         checkpoint.discard()
 
     raw = read_papers(conf_dir / "papers.jsonl")
+    # Captured before carry_over runs, while `abstract` still holds only what
+    # the crawl supplied. Unbinding needs to tell an OpenReview abstract from
+    # one Semantic Scholar filled in, and the enriched record does not say.
+    crawl_abstracts = {normalize_title(p.title): p.abstract for p in raw}
     enriched = read_papers(conf_dir / "papers_enriched.jsonl")
 
     reason = check_guards(raw, enriched)
@@ -534,13 +587,14 @@ async def enrich_conference(
 
     with checkpoint:
         async with httpx.AsyncClient(timeout=60.0) as http:
-            await _run_batch(
+            unbound = await _run_batch(
                 client, http, refresh, corpus_id_of,
-                set_match_status=False, record=checkpoint.record,
+                mode="verify", crawl_abstracts=crawl_abstracts,
+                record=checkpoint.record,
             )
             await _run_batch(
                 client, http, doi_cold, doi_id_of,
-                set_match_status=True, record=checkpoint.record,
+                mode="set", record=checkpoint.record,
             )
             await _run_title_cold(
                 client, http, title_cold, conf_id, record=checkpoint.record
@@ -567,6 +621,7 @@ async def enrich_conference(
         refreshed=len(refresh),
         cold=len(doi_cold) + len(title_cold),
         resumed=resumed,
+        unbound=len(unbound),
     )
 
 

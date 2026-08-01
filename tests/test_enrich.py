@@ -272,6 +272,7 @@ import respx
 from ppr.enrich import (
     EnrichResult,
     S2_VENUE_NAMES,
+    _run_batch,
     checkpoint_path,
     corpus_id_of,
     doi_id_of,
@@ -415,11 +416,10 @@ class TestEnrichConference:
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_refresh_path_does_not_relabel_match_status(self, tmp_path):
-        # Refresh updates records already adjudicated by a prior title-match run.
-        # A non-default match_status ("mismatch") must survive a refresh
-        # untouched — re-labelling it from the batch response would destroy
-        # that adjudication history.
+    async def test_refresh_relabels_from_the_verified_response(self, tmp_path):
+        # The old behaviour preserved a prior "mismatch" as adjudication
+        # history. It was never history — it was a wrong binding being
+        # refreshed forever. Refresh now re-decides from what came back.
         _conf(
             tmp_path,
             "iclr_2026",
@@ -429,14 +429,155 @@ class TestEnrichConference:
         respx.post(BATCH_URL).mock(
             return_value=httpx.Response(
                 200,
-                json=[
-                    {"title": "A", "citationCount": 5, "externalIds": {"CorpusId": 1}}
-                ],
+                json=[{"title": "A", "citationCount": 5, "externalIds": {"CorpusId": 1},
+                       "authors": [{"name": "X"}]}],
             )
         )
         await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
         out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
-        assert out[0].match_status == "mismatch"
+        assert out[0].match_status == "matched"
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_refresh_unbinds_a_wrong_binding(self, tmp_path):
+        wrong = _paper(title="Bi-VLM: Binary Post-Training Quantization",
+                       authors=["Ada Lovelace"])
+        right = _paper(title="A Correct Paper", authors=["Grace Hopper"])
+        _conf(
+            tmp_path,
+            "iclr_2026",
+            [wrong, right],
+            [_paper(title="Bi-VLM: Binary Post-Training Quantization", authors=["Ada Lovelace"],
+                    external_ids={"CorpusId": 1}, citation_count=400, tldr="wrong",
+                    abstract="Someone else's abstract.", open_access_pdf="http://x/y.pdf",
+                    match_status="mismatch"),
+             _paper(title="A Correct Paper", authors=["Grace Hopper"],
+                    external_ids={"CorpusId": 2}, citation_count=8, match_status="matched")],
+        )
+        respx.post(BATCH_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json=[{"title": "Computing Neighbourhoods with Language Models",
+                       "citationCount": 400, "externalIds": {"CorpusId": 1},
+                       "authors": [{"name": "Alan Turing"}]},
+                      {"title": "A Correct Paper", "citationCount": 8,
+                       "externalIds": {"CorpusId": 2},
+                       "authors": [{"name": "Grace Hopper"}]}],
+            )
+        )
+        respx.get(BULK_URL).mock(return_value=httpx.Response(200, json={"data": []}))
+        respx.get(MATCH_URL).mock(return_value=httpx.Response(200, json={"data": []}))
+        result = await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
+        out = {p.title: p for p in read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")}
+        severed = out["Bi-VLM: Binary Post-Training Quantization"]
+        assert severed.match_status == "not_found"
+        assert severed.citation_count is None
+        assert severed.external_ids == {}
+        assert severed.tldr == ""
+        assert severed.open_access_pdf == ""
+        assert severed.abstract == ""  # the crawl had none
+        assert out["A Correct Paper"].external_ids == {"CorpusId": 2}
+        assert result.unbound == 1
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_unbind_restores_the_crawl_abstract(self, tmp_path):
+        # OpenReview supplies abstracts; S2 only fills the blanks. Clearing
+        # outright would blank a legitimate abstract until next month's crawl
+        # read restores it.
+        _conf(
+            tmp_path,
+            "iclr_2026",
+            [_paper(title="Beta Diffusion", authors=["Ada Lovelace"], abstract="Ours, from OpenReview."),
+             _paper(title="A Correct Paper", authors=["Grace Hopper"])],
+            [_paper(title="Beta Diffusion", authors=["Ada Lovelace"], abstract="Ours, from OpenReview.",
+                    external_ids={"CorpusId": 1}, citation_count=90, match_status="mismatch"),
+             _paper(title="A Correct Paper", authors=["Grace Hopper"],
+                    external_ids={"CorpusId": 2}, citation_count=8, match_status="matched")],
+        )
+        respx.post(BATCH_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json=[{"title": "Floorplan Generation with Graph Beta Diffusion",
+                       "citationCount": 90, "externalIds": {"CorpusId": 1},
+                       "authors": [{"name": "Alan Turing"}]},
+                      {"title": "A Correct Paper", "citationCount": 8,
+                       "externalIds": {"CorpusId": 2},
+                       "authors": [{"name": "Grace Hopper"}]}],
+            )
+        )
+        respx.get(BULK_URL).mock(return_value=httpx.Response(200, json={"data": []}))
+        respx.get(MATCH_URL).mock(return_value=httpx.Response(200, json={"data": []}))
+        await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
+        out = {p.title: p for p in read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")}
+        assert out["Beta Diffusion"].abstract == "Ours, from OpenReview."
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_unbound_paper_is_not_checkpointed_by_refresh(self, tmp_path):
+        # If refresh checkpointed the severed paper, a crash before the cold
+        # stage would leave the next run restoring it as finished — frozen
+        # unbound and never retried. It is recorded only once cold finishes it.
+        _conf(
+            tmp_path,
+            "iclr_2026",
+            [_paper(title="Beta Diffusion", authors=["Ada Lovelace"]),
+             _paper(title="A Correct Paper", authors=["Grace Hopper"])],
+            [_paper(title="Beta Diffusion", authors=["Ada Lovelace"],
+                    external_ids={"CorpusId": 1}, citation_count=90, match_status="mismatch"),
+             _paper(title="A Correct Paper", authors=["Grace Hopper"],
+                    external_ids={"CorpusId": 2}, citation_count=8, match_status="matched")],
+        )
+        respx.post(BATCH_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json=[{"title": "Floorplan Generation with Graph Beta Diffusion",
+                       "citationCount": 90, "externalIds": {"CorpusId": 1},
+                       "authors": [{"name": "Alan Turing"}]},
+                      {"title": "A Correct Paper", "citationCount": 8,
+                       "externalIds": {"CorpusId": 2},
+                       "authors": [{"name": "Grace Hopper"}]}],
+            )
+        )
+        recorded = []
+        client = S2Client(min_interval=0.0)
+        papers = read_papers(tmp_path / "iclr_2026" / "papers.jsonl")
+        for p in papers:
+            if p.title == "Beta Diffusion":
+                p.external_ids = {"CorpusId": 1}
+            elif p.title == "A Correct Paper":
+                p.external_ids = {"CorpusId": 2}
+        async with httpx.AsyncClient() as http:
+            await _run_batch(
+                client,
+                http,
+                papers,
+                corpus_id_of,
+                mode="verify",
+                crawl_abstracts={},
+                record=recorded.extend,
+            )
+        assert [p.title for p in recorded] == ["A Correct Paper"]
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_null_entry_never_unbinds(self, tmp_path):
+        # get_batch fills a whole failed chunk with None. Reading that as a
+        # failed verification would sever 500 papers over one HTTP hiccup.
+        _conf(
+            tmp_path,
+            "iclr_2026",
+            [_paper(title="A")],
+            [_paper(title="A", external_ids={"CorpusId": 1}, citation_count=77,
+                    match_status="matched")],
+        )
+        respx.post(BATCH_URL).mock(return_value=httpx.Response(200, json=[None]))
+        result = await enrich_conference("iclr_2026", S2Client(min_interval=0.0), tmp_path)
+        out = read_papers(tmp_path / "iclr_2026" / "papers_enriched.jsonl")
+        assert out[0].citation_count == 77
+        assert out[0].external_ids == {"CorpusId": 1}
+        assert out[0].match_status == "matched"
+        assert result.unbound == 0
 
     @respx.mock
     @pytest.mark.asyncio
@@ -732,7 +873,10 @@ class TestEnrichConference:
                 200,
                 json=[
                     {
-                        "title": i,
+                        # Corpus ID n was assigned to title P{n-1}; echoing the
+                        # matching title (rather than the id itself) is what
+                        # makes this binding survive verification.
+                        "title": f"P{int(i.split(':')[1]) - 1}",
                         "citationCount": 50,
                         "externalIds": {"CorpusId": int(i.split(":")[1])},
                     }
