@@ -43,7 +43,7 @@ The paper data is hosted as a GitHub Release asset. Run the setup script to down
 ./setup.sh
 ```
 
-This downloads the latest data snapshot (~60 MB) and extracts it to `data/`.
+This downloads the latest data snapshot (~95 MB) and extracts it to `data/`.
 
 > **Note:** Requires either the [GitHub CLI](https://cli.github.com/) (`gh`) or `curl`. If you don't have `gh`, the script falls back to `curl` automatically.
 
@@ -97,7 +97,7 @@ Conference ID format: `<venue>_<year>` (e.g., `iclr_2025`). Selections indicate 
 | NeurIPS | | oral, spotlight, poster | oral, spotlight, poster | oral, spotlight, poster |
 | ICML | main, spotlight | oral, spotlight, poster | oral, spotlight, poster | oral, poster |
 | AAAI | main | main | main | main |
-| IJCAI | | main | main | main |
+| IJCAI | main | main | main | main |
 
 NeurIPS also includes `datasets_oral`, `datasets_spotlight`, `datasets_poster` tracks.
 
@@ -110,7 +110,7 @@ NeurIPS also includes `datasets_oral`, `datasets_spotlight`, `datasets_poster` t
 | NAACL | | main, findings, industry | main, findings, industry | |
 | COLM | | main | main | |
 | EACL | main, findings, industry | | main, findings | main, findings |
-| COLING | main | main | |
+| COLING | | main, industry | main | |
 
 ### CV (CVF / ECVA)
 
