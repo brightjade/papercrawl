@@ -49,6 +49,42 @@ class TestParseAnthology:
         assert "Proceedings of the 18th Conference" not in titles
 
 
+# ACL Anthology wraps the first letter of a fixed-case word in its own span, so
+# a title's text is split across nodes. `get_text(strip=True)` strips each node
+# and joins with nothing, welding the words together: "of" + "L" + "atvian"
+# becomes "ofLatvian". Semantic Scholar cannot match a query like that, which is
+# how 521 papers across the four anthology-scraped venues sat permanently
+# unenriched. Verified against https://aclanthology.org/volumes/2024.lrec-main/.
+FIXED_CASE_HTML = """<html><body>
+<div class="d-sm-flex align-items-stretch mb-3">
+<span class="d-block">
+<strong><a href="/2024.lrec-main.20/" class="align-middle">A Computational Model of <span class="acl-fixed-case">L</span>atvian Morphology</a></strong><br/>
+<a href="/people/d/dana-krumina/">Dana <span class="acl-fixed-case">K</span>rumina</a>
+</span></div>
+<div class="d-sm-flex align-items-stretch mb-3">
+<span class="d-block">
+<strong><a href="/2024.lrec-main.21/" class="align-middle"><span class="acl-fixed-case">S</span>lovak<span class="acl-fixed-case">S</span>um: A Large Scale Dataset</a></strong><br/>
+<a href="/people/e/erik-novak/">Erik Novak</a>
+</span></div>
+</body></html>"""
+
+
+class TestParseAnthologyFixedCase:
+    def test_title_keeps_spaces_around_fixed_case_spans(self):
+        papers = _parse_anthology(FIXED_CASE_HTML, "main")
+        assert papers[0].title == "A Computational Model of Latvian Morphology"
+
+    def test_title_does_not_invent_spaces_inside_a_word(self):
+        # "SlovakSum" is one word split across three nodes — joining with a
+        # separator would wrongly yield "Slovak Sum".
+        papers = _parse_anthology(FIXED_CASE_HTML, "main")
+        assert papers[1].title == "SlovakSum: A Large Scale Dataset"
+
+    def test_author_names_keep_spaces_around_fixed_case_spans(self):
+        papers = _parse_anthology(FIXED_CASE_HTML, "main")
+        assert papers[0].authors == ["Dana Krumina"]
+
+
 class TestParseAuthorDelimiter:
     def test_comma_separated(self):
         html = '<ul><li><strong>Title</strong><em>Alice, Bob, Carol</em></li></ul>'

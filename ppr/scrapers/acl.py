@@ -246,6 +246,22 @@ def scrape_naacl_2024() -> list[Paper]:
     return papers
 
 
+def _anthology_text(element) -> str:
+    """Text of an ACL Anthology element, with its internal spacing intact.
+
+    Anthology markup splits a title across nodes: it wraps the first letter of
+    a fixed-case word in its own span, so "of Latvian" is
+    `of <span class="acl-fixed-case">L</span>atvian`. `get_text(strip=True)`
+    strips each node before joining and welds that into "ofLatvian", which
+    Semantic Scholar cannot match. `get_text(" ")` is the opposite error — it
+    would split "SlovakSum" into "Slovak Sum".
+
+    Taking the untouched text and collapsing runs of whitespace preserves the
+    separator the document actually had, and invents none.
+    """
+    return " ".join(element.get_text().split())
+
+
 def _parse_anthology(html: str, selection: str) -> list[Paper]:
     """Parse papers from ACL Anthology volume pages.
 
@@ -272,7 +288,7 @@ def _parse_anthology(html: str, selection: str) -> list[Paper]:
         # Skip proceedings header entries (href ends with .0/)
         if href.rstrip("/").endswith(".0"):
             continue
-        title = title_a.get_text(strip=True)
+        title = _anthology_text(title_a)
         if href and not href.startswith("http"):
             href = f"{ANTHOLOGY_BASE_URL}{href}"
 
@@ -283,7 +299,7 @@ def _parse_anthology(html: str, selection: str) -> list[Paper]:
                 continue  # skip title link
             author_href = a.get("href", "")
             if "/people/" in author_href:
-                authors.append(a.get_text(strip=True))
+                authors.append(_anthology_text(a))
 
         if not authors:
             continue
